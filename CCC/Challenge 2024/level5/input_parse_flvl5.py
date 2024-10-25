@@ -41,12 +41,13 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
         desks_placed = 0
 
         # Calculate potential desk placements for both orientations
-        horizontal_capacity = (y + 1) // 2 * (x // 3)
-        vertical_capacity = (x + 1) // 2 * (y // 3)
+        horizontal_capacity = ((y + 1) // 2) * ((x + 1) // 3)
+        vertical_capacity = ((x + 1) // 2) * ((y + 1) // 3)
 
         # Decide whether to place desks horizontally or vertically
         start_horizontally = horizontal_capacity >= vertical_capacity
 
+        # Step 1: Initial Placement in Preferred Orientation
         if start_horizontally:
             # Place desks horizontally
             for row in range(0, y, 2):  # Every other row to prevent adjacency
@@ -74,14 +75,60 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
                 if desks_placed >= desk_count:
                     break
 
+        # Step 2: Additional Placement in Alternative Orientation
+        if desks_placed < desk_count:
+            # Attempt to place additional desks in the alternative orientation
+            if start_horizontally:
+                # Try placing vertical desks in remaining spaces
+                for row in range(y):
+                    for col in range(x):
+                        if desks_placed >= desk_count:
+                            break
+                        if matrix[row][col] == '.':
+                            # Try placing a vertical desk
+                            if row + 1 < y and matrix[row + 1][col] == '.':
+                                if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row + 1, col)]):
+                                    matrix[row][col] = 'X'
+                                    matrix[row + 1][col] = 'X'
+                                    desks_placed += 1
+                    if desks_placed >= desk_count:
+                        break
+            else:
+                # Try placing horizontal desks in remaining spaces
+                for row in range(y):
+                    for col in range(x):
+                        if desks_placed >= desk_count:
+                            break
+                        if matrix[row][col] == '.':
+                            # Try placing a horizontal desk
+                            if col + 1 < x and matrix[row][col + 1] == '.':
+                                if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row, col + 1)]):
+                                    matrix[row][col] = 'X'
+                                    matrix[row][col + 1] = 'X'
+                                    desks_placed += 1
+                    if desks_placed >= desk_count:
+                        break
+
         # Convert the matrix to the required output format
         matrix_output = '\n'.join(''.join(row) for row in matrix)
         results.append(matrix_output)
-        if desks_placed < room_info.desks_to_place:
-            print("Not all desks could be placed.")
+        if room_info.desks_to_place != desks_placed:
+            print(f"Warning: Could not place all desks in room {x}x{y}. Placed {desks_placed} desks out of {desk_count}.")
 
     return results
 
+
+def has_adjacent_desk(matrix, i, j, x, y, desk_cells):
+    """Check if any adjacent cells (including diagonally) have a desk."""
+    for ci, cj in desk_cells:
+        for ni in range(ci - 1, ci + 2):
+            for nj in range(cj - 1, cj + 2):
+                if (ni, nj) == (ci, cj):
+                    continue
+                if 0 <= ni < y and 0 <= nj < x:
+                    if matrix[ni][nj] == 'X':
+                        return True
+    return False
 
 def format_output(room_results: List[str]) -> str:
     """Format the results by joining the room matrices."""
@@ -96,7 +143,7 @@ if __name__ == '__main__':
     output_location = Path("../Outputs/level5")
 
     # Load input files
-    input_files = load_inputs(input_location)
+    input_files = ["/home/jd/git/uni/CCC/CCC/Challenge 2024/Inputs/level5/level5_1.in"] # load_inputs(input_location)
 
     for f_p in input_files:
         with open(f_p, "r") as file:
