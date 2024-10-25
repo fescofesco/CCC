@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from typing import List
 import math
@@ -40,82 +41,82 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
         matrix = [['.'] * x for _ in range(y)]
         desks_placed = 0
 
-        # Calculate potential desk placements for both orientations
-        horizontal_capacity = ((y + 1) // 2) * ((x + 1) // 3)
-        vertical_capacity = ((x + 1) // 2) * ((y + 1) // 3)
+        start_horizontally = True
 
-        # Decide whether to place desks horizontally or vertically
-        start_horizontally = horizontal_capacity >= vertical_capacity
+        desks_placed, result_mat = try_table_placement(desk_count, desks_placed, copy.deepcopy(matrix), start_horizontally, x, y)
 
-        # Step 1: Initial Placement in Preferred Orientation
+        if room_info.desks_to_place != desks_placed:
+            desks_placed, result_mat = try_table_placement(desk_count, desks_placed, matrix, not start_horizontally, x, y)
+            print(f"Warning: Could not place all desks in room {x}x{y}. Placed {desks_placed} desks out of {desk_count}.")
+
+        matrix_output = '\n'.join(''.join(row) for row in result_mat)
+        results.append(matrix_output)
+
+    return results
+
+
+def try_table_placement(desk_count, desks_placed, matrix, start_horizontally, x, y):
+    # Step 1: Initial Placement in Preferred Orientation
+    if start_horizontally:
+        # Place desks horizontally
+        for row in range(0, y, 2):  # Every other row to prevent adjacency
+            for col in range(0, x - 1, 3):  # Place desks with spacing
+                if desks_placed >= desk_count:
+                    break
+                # Ensure we don't go out of bounds
+                if col + 1 < x:
+                    matrix[row][col] = 'X'
+                    matrix[row][col + 1] = 'X'
+                    desks_placed += 1
+            if desks_placed >= desk_count:
+                break
+    else:
+        # Place desks vertically
+        for col in range(0, x, 2):  # Every other column to prevent adjacency
+            for row in range(0, y - 1, 3):  # Place desks with spacing
+                if desks_placed >= desk_count:
+                    break
+                # Ensure we don't go out of bounds
+                if row + 1 < y:
+                    matrix[row][col] = 'X'
+                    matrix[row + 1][col] = 'X'
+                    desks_placed += 1
+            if desks_placed >= desk_count:
+                break
+    # Step 2: Additional Placement in Alternative Orientation
+    if desks_placed < desk_count:
+        # Attempt to place additional desks in the alternative orientation
         if start_horizontally:
-            # Place desks horizontally
-            for row in range(0, y, 2):  # Every other row to prevent adjacency
-                for col in range(0, x - 1, 3):  # Place desks with spacing
+            # Try placing vertical desks in remaining spaces
+            for row in range(y):
+                for col in range(x):
                     if desks_placed >= desk_count:
                         break
-                    # Ensure we don't go out of bounds
-                    if col + 1 < x:
-                        matrix[row][col] = 'X'
-                        matrix[row][col + 1] = 'X'
-                        desks_placed += 1
+                    if matrix[row][col] == '.':
+                        # Try placing a vertical desk
+                        if row + 1 < y and matrix[row + 1][col] == '.':
+                            if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row + 1, col)]):
+                                matrix[row][col] = 'X'
+                                matrix[row + 1][col] = 'X'
+                                desks_placed += 1
                 if desks_placed >= desk_count:
                     break
         else:
-            # Place desks vertically
-            for col in range(0, x, 2):  # Every other column to prevent adjacency
-                for row in range(0, y - 1, 3):  # Place desks with spacing
+            # Try placing horizontal desks in remaining spaces
+            for row in range(y):
+                for col in range(x):
                     if desks_placed >= desk_count:
                         break
-                    # Ensure we don't go out of bounds
-                    if row + 1 < y:
-                        matrix[row][col] = 'X'
-                        matrix[row + 1][col] = 'X'
-                        desks_placed += 1
+                    if matrix[row][col] == '.':
+                        # Try placing a horizontal desk
+                        if col + 1 < x and matrix[row][col + 1] == '.':
+                            if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row, col + 1)]):
+                                matrix[row][col] = 'X'
+                                matrix[row][col + 1] = 'X'
+                                desks_placed += 1
                 if desks_placed >= desk_count:
                     break
-
-        # Step 2: Additional Placement in Alternative Orientation
-        if desks_placed < desk_count:
-            # Attempt to place additional desks in the alternative orientation
-            if start_horizontally:
-                # Try placing vertical desks in remaining spaces
-                for row in range(y):
-                    for col in range(x):
-                        if desks_placed >= desk_count:
-                            break
-                        if matrix[row][col] == '.':
-                            # Try placing a vertical desk
-                            if row + 1 < y and matrix[row + 1][col] == '.':
-                                if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row + 1, col)]):
-                                    matrix[row][col] = 'X'
-                                    matrix[row + 1][col] = 'X'
-                                    desks_placed += 1
-                    if desks_placed >= desk_count:
-                        break
-            else:
-                # Try placing horizontal desks in remaining spaces
-                for row in range(y):
-                    for col in range(x):
-                        if desks_placed >= desk_count:
-                            break
-                        if matrix[row][col] == '.':
-                            # Try placing a horizontal desk
-                            if col + 1 < x and matrix[row][col + 1] == '.':
-                                if not has_adjacent_desk(matrix, row, col, x, y, [(row, col), (row, col + 1)]):
-                                    matrix[row][col] = 'X'
-                                    matrix[row][col + 1] = 'X'
-                                    desks_placed += 1
-                    if desks_placed >= desk_count:
-                        break
-
-        # Convert the matrix to the required output format
-        matrix_output = '\n'.join(''.join(row) for row in matrix)
-        results.append(matrix_output)
-        if room_info.desks_to_place != desks_placed:
-            print(f"Warning: Could not place all desks in room {x}x{y}. Placed {desks_placed} desks out of {desk_count}.")
-
-    return results
+    return desks_placed, matrix
 
 
 def has_adjacent_desk(matrix, i, j, x, y, desk_cells):
