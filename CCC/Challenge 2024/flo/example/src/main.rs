@@ -1,3 +1,6 @@
+
+mod level1;
+mod level2;
 fn main() {
-    println!("Hello, world!");
+    level1::part1();
 }
