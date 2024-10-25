@@ -50,19 +50,21 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
 
 
         current_ind = 0
-        while current_ind < bigger_dim - 3:
-            for col in range(0, bigger_dim, 2):
-                for row in range(current_ind, current_ind+2):
-                    if start_horizontally:
-                        matrix[row][col] = 'X'
-                    else:
-                        matrix[col][row] = 'X'
-
-                desks_placed += 1
-                if desks_placed >= desk_count:
-                    break
-            current_ind += 3
-
+        try: 
+                
+            while current_ind < bigger_dim - 3:
+                for col in range(0, bigger_dim, 2):
+                    for row in range(current_ind, current_ind+2):
+                        if start_horizontally:
+                            matrix[row][col] = 'X'
+                        else:
+                            matrix[col][row] = 'X'
+                    desks_placed += 1
+                    if desks_placed >= desk_count:
+                        break
+                current_ind += 3
+        except IndexError:
+            print("WTF")
         # if desks_placed < desk_count:
         #     rows_left = smaller_dim - current_ind
         #     if rows_left > 0:
