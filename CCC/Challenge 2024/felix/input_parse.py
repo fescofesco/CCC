@@ -8,13 +8,23 @@ def parse_input(input_string):
         x, y = map(int, lines[i].split())
         rooms.append((x, y))
 
+import os
+from pathlib import Path
     return rooms
 
+location = Path("../Inputs/level1")
 def max_desks_in_room(x, y):
     # Desk dimensions
     desk_width = 3
     desk_height = 1
 
+def load_inputs(location, ending=".in"):
+    """Load all input files with the specified ending from the directory."""
+    input_files = []
+    for file_name in os.listdir(location):
+        if file_name.endswith(ending):
+            input_files.append(os.path.join(location, file_name))
+    return input_files
     # Maximum desks that can fit along the width and height of the room
     desks_in_width = x // desk_width
     desks_in_height = y // desk_height
