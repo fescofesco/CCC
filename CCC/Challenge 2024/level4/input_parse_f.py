@@ -41,7 +41,6 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
 
         star_horizontally = x > y
         bigger_dim = x if star_horizontally else y
-        smaller_dim = y if star_horizontally else x
 
         current_ind = 0
         while current_ind < bigger_dim - 4:
@@ -56,22 +55,22 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
                 if desks_placed >= desk_count:
                     break
             current_ind += 4
-
+            
         if desks_placed < desk_count:
-            rows_left = smaller_dim - current_ind
-            if rows_left > 0:
-                current_ind = 0
-                while desks_placed < desk_count:
+            rows_left = bigger_dim - current_ind
+            if rows_left >= 2:
+                for row in range(current_ind, current_ind+2):
+                    col = bigger_dim - 1
+                    if not star_horizontally:
+                        matrix[row][col] = 'X'
+                    else:
+                        matrix[col][row] = 'X'
+        
 
-                    row = smaller_dim - 1
-                    for col in range(current_ind, current_ind+3):
-                        if not star_horizontally:
-                            matrix[col][row] = 'X'
-                        else:
-                            matrix[row][col] = 'X'
-                    current_ind += 4
-                    desks_placed += 1
 
+
+
+        # Formatting the matrix output
         matrix_output = '\n'.join(''.join(row) for row in matrix)
         results.append(matrix_output)
 
@@ -91,7 +90,7 @@ if __name__ == '__main__':
     output_location = Path("../Outputs/level4")
 
     # Load input files
-    input_files = load_inputs(input_location)
+    input_files = ["C:/Users/felix/Documents/CCC/CCC/Challenge 2024/Inputs/level4/level4_example.in"] #load_inputs(input_location)
 
     for f_p in input_files:
         with open(f_p, "r") as file:
