@@ -38,24 +38,33 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
 
     for room_info in room_infos:
         x, y, desk_count = room_info.x, room_info.y, room_info.desks_to_place
-        matrix = [['.'] * x for _ in range(y)]
-        desks_placed = 0
 
-        start_horizontally = True
+        best_desks_placed = 0
+        best_matrix_output = ''
+        for start_horizontally in [True, False]:
+            # Reset desks_placed and matrix for each attempt
+            desks_placed, result_mat = try_table_placement(desk_count, start_horizontally, x, y)
 
-        desks_placed, result_mat = try_table_placement(desk_count, desks_placed, copy.deepcopy(matrix), start_horizontally, x, y)
-
-        if room_info.desks_to_place != desks_placed:
-            desks_placed, result_mat = try_table_placement(desk_count, desks_placed, matrix, not start_horizontally, x, y)
-            print(f"Warning: Could not place all desks in room {x}x{y}. Placed {desks_placed} desks out of {desk_count}.")
-
-        matrix_output = '\n'.join(''.join(row) for row in result_mat)
-        results.append(matrix_output)
+            if desks_placed >= desk_count:
+                # We have placed all desks
+                matrix_output = '\n'.join(''.join(row) for row in result_mat)
+                results.append(matrix_output)
+                break  # No need to try other orientations
+            else:
+                # Keep track of the best attempt
+                if desks_placed > best_desks_placed:
+                    best_desks_placed = desks_placed
+                    best_matrix_output = '\n'.join(''.join(row) for row in result_mat)
+        else:
+            # If we did not break out of the loop, we did not place all desks
+            results.append(best_matrix_output)
+            print(f"Warning: Could not place all desks in room {x}x{y}. Placed {best_desks_placed} desks out of {desk_count}.")
 
     return results
 
-
-def try_table_placement(desk_count, desks_placed, matrix, start_horizontally, x, y):
+def try_table_placement(desk_count, start_horizontally, x, y):
+    desks_placed = 0
+    matrix = [['.'] * x for _ in range(y)]
     # Step 1: Initial Placement in Preferred Orientation
     if start_horizontally:
         # Place desks horizontally
@@ -118,7 +127,6 @@ def try_table_placement(desk_count, desks_placed, matrix, start_horizontally, x,
                     break
     return desks_placed, matrix
 
-
 def has_adjacent_desk(matrix, i, j, x, y, desk_cells):
     """Check if any adjacent cells (including diagonally) have a desk."""
     for ci, cj in desk_cells:
@@ -144,7 +152,7 @@ if __name__ == '__main__':
     output_location = Path("../Outputs/level5")
 
     # Load input files
-    input_files = ["/home/jd/git/uni/CCC/CCC/Challenge 2024/Inputs/level5/level5_1.in"] # load_inputs(input_location)
+    input_files = load_inputs(input_location)
 
     for f_p in input_files:
         with open(f_p, "r") as file:
