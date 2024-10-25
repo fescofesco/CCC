@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import List
+import os
 
 
 @dataclass
@@ -31,7 +32,7 @@ def parse_input(input_string):
 
 
 def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
-    """Generate the room matrix with the specified number of desks without touching each other."""
+    """Generate the room matrix with the specified number of desks in 1x3 blocks without touching each other."""
     results = []
 
     for room_info in room_infos:
@@ -39,27 +40,26 @@ def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
         matrix = [['.'] * x for _ in range(y)]
         desks_placed = 0
 
-        star_horizontally = x > y
-        bigger_dim = x if star_horizontally else y
+        place_horizontally = x >= y  # Place 1x3 blocks along the larger dimension
+        max_primary_dim = x if place_horizontally else y
+        max_secondary_dim = y if place_horizontally else x
 
-        current_ind = 0
-        while current_ind <= bigger_dim - 4:
-            for col in range(0, bigger_dim, 2):
-                for row in range(current_ind, current_ind+3):
-                    try:
-                        if star_horizontally:
-                            matrix[row][col] = 'X'
-                        else:
-                            matrix[col][row] = 'X'
-                    except IndexError:
-                        print("WTF")
-                desks_placed += 1
+        # Place desks in 1x3 blocks in every second row or column
+        for primary in range(0, max_secondary_dim, 2):
+            for secondary in range(0, max_primary_dim - 2, 4):  # Step by 4 to leave space
                 if desks_placed >= desk_count:
                     break
-            current_ind += 4
-
-
-
+                if place_horizontally:
+                    # Horizontal placement of 1x3 blocks in every second row
+                    matrix[primary][secondary] = 'X'
+                    matrix[primary][secondary + 1] = 'X'
+                    matrix[primary][secondary + 2] = 'X'
+                else:
+                    # Vertical placement of 1x3 blocks in every second column
+                    matrix[secondary][primary] = 'X'
+                    matrix[secondary + 1][primary] = 'X'
+                    matrix[secondary + 2][primary] = 'X'
+                desks_placed += 1
 
         # Formatting the matrix output
         matrix_output = '\n'.join(''.join(row) for row in matrix)
@@ -74,14 +74,13 @@ def format_output(room_results: List[str]) -> str:
 
 
 if __name__ == '__main__':
-    import os
     from pathlib import Path
 
     input_location = Path("../Inputs/level4")
     output_location = Path("../Outputs/level4")
 
     # Load input files
-    input_files = ["/home/jd/git/uni/CCC/CCC/Challenge 2024/Inputs/level4/level4_example.in"] #load_inputs(input_location)
+    input_files = load_inputs(input_location)
 
     for f_p in input_files:
         with open(f_p, "r") as file:
