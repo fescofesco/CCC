@@ -1,3 +1,5 @@
+from optimize import max_desks_in_room
+
 def parse_input(input_string):
     lines = input_string.strip().split('\n')
     N = int(lines[0])  # Number of rooms
@@ -10,20 +12,6 @@ def parse_input(input_string):
 
     return rooms
 
-def max_desks_in_room(x, y):
-    # Desk dimensions
-    desk_width = 3
-    desk_height = 1
-
-    # Maximum desks that can fit along the width and height of the room
-    desks_in_width = x // desk_width
-    desks_in_height = y // desk_height
-
-    # Total desks that can fit in the room
-    total_desks = desks_in_width * desks_in_height
-
-    return total_desks
-
 def calculate_desks(rooms):
     desk_counts = [max_desks_in_room(x, y) for x, y in rooms]
     return desk_counts
@@ -32,17 +20,10 @@ def format_output(desk_counts):
     return '\n'.join(map(str, desk_counts))
 
 if __name__ == '__main__':
-    input_string = """3
-    6 5
-    9 8
-    6 7"""
-
-    # Parse the input
+    with open("/home/jd/git/uni/CCC/CCC/Challenge 2024/Inputs/level1/level1_1.in", "r") as file:
+        input_string = file.read()
     rooms = parse_input(input_string)
-
-    # Calculate the number of desks for each room
     desk_counts = calculate_desks(rooms)
-
-    # Format the output
     output_string = format_output(desk_counts)
-    print(output_string)
+    with open("/home/jd/git/uni/CCC/CCC/Challenge 2024/level1/level1.out", "w") as file:
+        file.write(output_string)

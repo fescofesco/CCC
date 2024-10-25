@@ -11,9 +11,3 @@ def max_desks_in_room(x, y):
     total_desks = desks_in_width * desks_in_height
 
     return total_desks
-
-# Example usage with arbitrary room dimensions
-rooms = [(6, 5), (9, 8), (6, 7)]
-desk_counts = [max_desks_in_room(x, y) for x, y in rooms]
-
-print("Maximum number of desks for each room:", desk_counts)
