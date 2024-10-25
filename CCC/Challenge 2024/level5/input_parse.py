@@ -30,53 +30,6 @@ def parse_input(input_string):
     return room_infos
 
 
-# def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
-#     """Generate the room matrix with the specified number of desks without touching each other."""
-#     results = []
-#
-#     for room_info in room_infos:
-#         x, y, desk_count = room_info.x, room_info.y, room_info.desks_to_place
-#         matrix = [['.'] * x for _ in range(y)]
-#         desks_placed = 0
-#
-#         star_horizontally = x > y
-#         bigger_dim = x if star_horizontally else y
-#         smaller_dim = y if star_horizontally else x
-#
-#         current_ind = 0
-#         while current_ind < bigger_dim - 4:
-#             for col in range(0, bigger_dim, 2):
-#                 for row in range(current_ind, current_ind+3):
-#                     if star_horizontally:
-#                         matrix[row][col] = 'X'
-#                     else:
-#                         matrix[col][row] = 'X'
-#
-#                 desks_placed += 1
-#                 if desks_placed >= desk_count:
-#                     break
-#             current_ind += 4
-#
-#         if desks_placed < desk_count:
-#             rows_left = smaller_dim - current_ind
-#             if rows_left > 0:
-#                 current_ind = 0
-#                 while desks_placed < desk_count:
-#
-#                     row = smaller_dim - 1
-#                     for col in range(current_ind, current_ind+3):
-#                         if not star_horizontally:
-#                             matrix[col][row] = 'X'
-#                         else:
-#                             matrix[row][col] = 'X'
-#                     current_ind += 4
-#                     desks_placed += 1
-#
-#         matrix_output = '\n'.join(''.join(row) for row in matrix)
-#         results.append(matrix_output)
-#
-#     return results
-
 def provide_room_matrix(room_infos: List[RoomDeskInfo]) -> List[str]:
     """Generate the room matrix with the specified number of desks without touching each other."""
     results = []
