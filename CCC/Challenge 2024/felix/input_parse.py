@@ -31,8 +31,8 @@ def parse_file(file_path):
     with open(file_path, "r") as file:
         lines = file.readlines()
         number_of_rooms = int(lines[0].strip())  # First line: number of rounds
-        rooms = [line.strip() for line in lines[1:number_of_rounds + 1]]  # Rest are fights
-    return number_of_rounds, fights
+        rooms = [line.strip() for line in lines[1:number_of_rooms + 1]]  # Rest are fights
+    return number_of_rounds, rooms
 """
 def determine_outcome(fights):
     """Determine the outcome of each fight using the outcome map."""
