@@ -1,0 +1,70 @@
+Level 5 – Collision-Free 2D Navigation with Pace Sequences
+
+In Level 5, you continue piloting the spaceship through discrete 2D
+space using pace sequences—but now with a dangerous twist: a stationary
+asteroid threatens your path. The goal is to reach a target space
+station while respecting movement rules and avoiding any collision with
+the asteroid’s safety zone.
+
+Objective
+
+For each test case, generate two synchronized sequences of paces: - One
+X-axis sequence - One Y-axis sequence
+
+These sequences must guide the ship from the start position (0,0) to a
+target station coordinate (X_station, Y_station) without ever entering
+the asteroid’s danger area and within the given time limit. Each axis
+receives its own 1D pace timeline, but together, they form a 2D movement
+path step by step.
+
+Pace Rules (Per Axis)
+
+Each sequence is a list of integers drawn from: -5, -4, -3, -2, -1, 0,
+1, 2, 3, 4, 5
+
+A pace affects: - Movement: p > 0 → move +1 unit p < 0 → move –1 unit p
+= 0 → no movement - Time cost: p ≠ 0 → time += |p| p = 0 → time += 1
+
+Each axis has its own total time, and each must be ≤ the given limit T.
+
+Transition Constraints
+
+Each axis must follow strict transitions: - Start and end with 0. - From
+0 you may only jump to +5 or –5. - To return to 0, the previous pace
+must be +5 or –5. - Between non-zero paces: allowed change is ±1. Larger
+jumps are illegal.
+
+Asteroid Collision Rules
+
+A single asteroid is located at (X_asteroid, Y_asteroid). The ship has a
+safety square radius of 2 around it.
+
+Collision if: max(|x - X_ast|, |y - Y_ast|) ≤ 2
+
+Your path must never violate this condition.
+
+Input Format
+
+N X_station,Y_station T X_asteroid,Y_asteroid (repeated N times)
+
+Example: 3 6,0 118 3,0 10,4 112 7,4 -7,-7 124 -4,-4
+
+Output Format
+
+For each test case output: 1. X-pace sequence 2. Y-pace sequence 3.
+Blank line (optional)
+
+Both sequences must be the same length, since each step represents one
+simultaneous 2D movement.
+
+Goal Summary
+
+To complete Level 5 you must: 1. Plan a 2D path from (0,0) to the
+specified station. 2. Ensure every position stays outside the asteroid’s
+radius-2 safety zone. 3. Convert each 2D movement step into legally
+structured X and Y pace sequences. 4. Ensure both sequences: - Follow
+all pace transition rules, - Start and end with 0, - Reach the exact
+target coordinates, - Stay within the time limit T.
+
+The challenge is reaching the target safely while obeying all movement
+physics.
