@@ -145,69 +145,156 @@ def generate_efficient_move_sequence(count, direction):
             seq.append(pace * direction)
         return seq
 
-def build_sequences_from_path(path):
-    """Convert a path of coordinates into X and Y pace sequences.
-    
-    NOTE: Sequences can have different lengths! When one ends, it implicitly
-    continues with pace=0 (no movement) until the other finishes.
-    """
-    if len(path) <= 1:
-        return [0], [0]
-    
-    # Split path into segments by axis changes
-    segments = []
-    i = 0
-    
-    while i < len(path) - 1:
-        x1, y1 = path[i]
-        x2, y2 = path[i + 1]
-        dx = x2 - x1
-        dy = y2 - y1
+def generate_simple_sequences(target_x, target_y, time_limit):
+    """Generate simple X and Y pace sequences using Level 3 logic."""
+    def generate_sequence_1d(target, time_limit):
+        if target == 0:
+            return [0]
         
-        if dx != 0:
-            axis = 'x'
-            direction = 1 if dx > 0 else -1
-        elif dy != 0:
-            axis = 'y'
-            direction = 1 if dy > 0 else -1
+        direction = 1 if target > 0 else -1
+        distance = abs(target)
+        sequence = [0]
+        
+        if distance == 1:
+            sequence.extend([5 * direction, 0])
+        elif distance == 2:
+            sequence.extend([5 * direction, 5 * direction, 0])
+        elif distance >= 9:
+            # Use pace 1 for efficiency
+            extra_at_1 = distance - 9
+            for pace in range(5, 0, -1):
+                sequence.append(pace * direction)
+            for _ in range(extra_at_1):
+                sequence.append(1 * direction)
+            for pace in range(2, 6):
+                sequence.append(pace * direction)
+            sequence.append(0)
         else:
-            i += 1
+            # Use valley patterns for 3-8
+            patterns = {
+                3: [5, 4, 5],
+                4: [5, 4, 4, 5],
+                5: [5, 4, 3, 4, 5],
+                6: [5, 4, 3, 3, 4, 5],
+                7: [5, 4, 3, 2, 3, 4, 5],
+                8: [5, 4, 3, 2, 2, 3, 4, 5]
+            }
+            sequence.extend([p * direction for p in patterns[distance]])
+            sequence.append(0)
+        
+        return sequence
+    
+    x_seq = generate_sequence_1d(target_x, time_limit)
+    y_seq = generate_sequence_1d(target_y, time_limit)
+    return x_seq, y_seq
+
+def check_collision_chebyshev(x, y, asteroid_x, asteroid_y):
+    """Check if position (x,y) collides with asteroid using Chebyshev distance."""
+    return max(abs(x - asteroid_x), abs(y - asteroid_y)) <= 2
+
+def simulate_path(x_seq, y_seq):
+    """Simulate the path taken by executing the sequences in parallel."""
+    positions = []
+    x, y = 0, 0
+    x_idx, y_idx = 0, 0
+    x_elapsed, y_elapsed = 0, 0
+    
+    max_len = max(len(x_seq), len(y_seq))
+    
+    while x_idx < len(x_seq) or y_idx < len(y_seq):
+        # Process X
+        if x_idx < len(x_seq):
+            x_pace = x_seq[x_idx]
+            pace_duration = abs(x_pace) if x_pace != 0 else 1
+            
+            if x_elapsed == 0 and x_pace != 0:
+                x += 1 if x_pace > 0 else -1
+            
+            x_elapsed += 1
+            if x_elapsed >= pace_duration:
+                x_idx += 1
+                x_elapsed = 0
+        
+        # Process Y
+        if y_idx < len(y_seq):
+            y_pace = y_seq[y_idx]
+            pace_duration = abs(y_pace) if y_pace != 0 else 1
+            
+            if y_elapsed == 0 and y_pace != 0:
+                y += 1 if y_pace > 0 else -1
+            
+            y_elapsed += 1
+            if y_elapsed >= pace_duration:
+                y_idx += 1
+                y_elapsed = 0
+        
+        positions.append((x, y))
+    
+    return positions
+
+def find_collision_free_sequences(target_x, target_y, asteroid_x, asteroid_y, time_limit):
+    """Find collision-free sequences by trying different delay strategies."""
+    # Generate base sequences for each axis
+    def gen_seq(target):
+        return generate_simple_sequences(target, 0, time_limit)[0]
+    
+    x_base = gen_seq(target_x)
+    y_base = gen_seq(target_y)
+    
+    # Try different strategies
+    strategies = []
+    
+    # Strategy 1: No delay (simultaneous movement)
+    strategies.append((x_base, y_base))
+    
+    # Strategy 2: Y first, then X (delay X start)
+    for delay in range(1, 150):
+        x_delayed = [0] * delay + x_base
+        strategies.append((x_delayed, y_base))
+    
+    # Strategy 3: X first, then Y (delay Y start)
+    for delay in range(1, 150):
+        y_delayed = [0] * delay + y_base
+        strategies.append((x_base, y_delayed))
+    
+    # Strategy 4: Both delayed (staggered start)
+    for x_delay in range(1, 50):
+        for y_delay in range(1, 50):
+            x_delayed = [0] * x_delay + x_base
+            y_delayed = [0] * y_delay + y_base
+            strategies.append((x_delayed, y_delayed))
+    
+    # Try each strategy
+    for x_seq, y_seq in strategies:
+        # Check time limit
+        x_time = sum(abs(p) if p != 0 else 1 for p in x_seq)
+        y_time = sum(abs(p) if p != 0 else 1 for p in y_seq)
+        if x_time > time_limit or y_time > time_limit:
             continue
         
-        # Count consecutive moves in same direction on same axis
-        count = 1
-        j = i + 1
-        while j < len(path) - 1:
-            nx1, ny1 = path[j]
-            nx2, ny2 = path[j + 1]
-            ndx = nx2 - nx1
-            ndy = ny2 - ny1
-            
-            if axis == 'x' and ndx * direction > 0 and ndy == 0:
-                count += 1
-                j += 1
-            elif axis == 'y' and ndy * direction > 0 and ndx == 0:
-                count += 1
-                j += 1
-            else:
-                break
+        # Check final position
+        x_pos = sum(1 if p > 0 else (-1 if p < 0 else 0) for p in x_seq)
+        y_pos = sum(1 if p > 0 else (-1 if p < 0 else 0) for p in y_seq)
+        if x_pos != target_x or y_pos != target_y:
+            continue
         
-        segments.append({'axis': axis, 'direction': direction, 'count': count})
-        i = j
+        # Check collision
+        path = simulate_path(x_seq, y_seq)
+        collision = any(check_collision_chebyshev(x, y, asteroid_x, asteroid_y) for x, y in path)
+        
+        if not collision:
+            return x_seq, y_seq
+    
+    raise ValueError(f"Cannot find collision-free path to ({target_x},{target_y}) avoiding asteroid at ({asteroid_x},{asteroid_y})")
+
+def build_sequences_from_path(path):
+    """DEPRECATED: Use find_collision_free_sequences instead."""
+    if len(path) <= 1:
+        return [0], [0]
     
     # Build sequences - each axis has its own independent sequence
     x_seq = [0]
     y_seq = [0]
-    
-    for segment in segments:
-        move_seq = generate_efficient_move_sequence(segment['count'], segment['direction'])
-        
-        if segment['axis'] == 'x':
-            x_seq.extend(move_seq)
-            x_seq.append(0)
-        else:
-            y_seq.extend(move_seq)
-            y_seq.append(0)
     
     return x_seq, y_seq
 
@@ -230,9 +317,9 @@ def solve_level5(input_text):
         time_limit = int(time_limit_str)
         ax, ay = map(int, asteroid_line.split(','))
 
-        # Find collision-free path and convert to sequences
+        # Find collision-free path using BFS, then convert to sequences with delays
         path = bfs_find_path(xs, ys, ax, ay)
-        x_seq, y_seq = build_sequences_from_path(path)
+        x_seq, y_seq = build_sequences_from_bfs_path(path, time_limit)
         
         x_str = " ".join(map(str, x_seq))
         y_str = " ".join(map(str, y_seq))
@@ -243,6 +330,66 @@ def solve_level5(input_text):
             results.append("")
 
     return "\n".join(results) + "\n"
+
+def build_sequences_from_bfs_path(path, time_limit):
+    """Convert BFS path to pace sequences, handling each axis independently."""
+    if len(path) <= 1:
+        return [0], [0]
+    
+    # Extract X and Y movements separately
+    x_movements = []
+    y_movements = []
+    
+    for i in range(len(path) - 1):
+        x1, y1 = path[i]
+        x2, y2 = path[i + 1]
+        
+        if x2 != x1:
+            x_movements.append(1 if x2 > x1 else -1)
+        if y2 != y1:
+            y_movements.append(1 if y2 > y1 else -1)
+    
+    # Generate sequences for each axis
+    def movements_to_sequence(movements):
+        if not movements:
+            return [0]
+        
+        sequence = [0]
+        direction = movements[0]
+        count = len(movements)
+        
+        # Use efficient pace patterns
+        if count == 1:
+            sequence.extend([5 * direction, 0])
+        elif count == 2:
+            sequence.extend([5 * direction, 5 * direction, 0])
+        elif count >= 9:
+            extra_at_1 = count - 9
+            for pace in range(5, 0, -1):
+                sequence.append(pace * direction)
+            for _ in range(extra_at_1):
+                sequence.append(1 * direction)
+            for pace in range(2, 6):
+                sequence.append(pace * direction)
+            sequence.append(0)
+        else:
+            patterns = {
+                3: [5, 4, 5],
+                4: [5, 4, 4, 5],
+                5: [5, 4, 3, 4, 5],
+                6: [5, 4, 3, 3, 4, 5],
+                7: [5, 4, 3, 2, 3, 4, 5],
+                8: [5, 4, 3, 2, 2, 3, 4, 5]
+            }
+            sequence.extend([p * direction for p in patterns[count]])
+            sequence.append(0)
+        
+        return sequence
+    
+    x_seq = movements_to_sequence(x_movements)
+    y_seq = movements_to_sequence(y_movements)
+    
+    return x_seq, y_seq
 
 def main():
     """Read from stdin and write solution to stdout."""
