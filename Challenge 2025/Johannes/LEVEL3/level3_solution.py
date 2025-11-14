@@ -1,75 +1,160 @@
 import sys
 import os
 
+def validate_sequence(sequence, expected_position, time_limit):
+    """
+    Validate a sequence against all rules (adapted from Felix's solution).
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    # Rule 1: Start and end with 0
+    if sequence[0] != 0:
+        return False, f"Does not start with 0"
+    if sequence[-1] != 0:
+        return False, f"Does not end with 0"
+    
+    # Rule 2: From 0, can only go to ±5
+    for i in range(len(sequence) - 1):
+        if sequence[i] == 0 and sequence[i+1] != 0:
+            if abs(sequence[i+1]) != 5:
+                return False, f"From 0 to {sequence[i+1]} (must be ±5)"
+    
+    # Rule 3: To 0, can only come from ±5
+    for i in range(len(sequence) - 1):
+        if sequence[i] != 0 and sequence[i+1] == 0:
+            if abs(sequence[i]) != 5:
+                return False, f"To 0 from {sequence[i]} (must be ±5)"
+    
+    # Rule 4: Between non-zero paces, can only change by ±1
+    for i in range(len(sequence) - 1):
+        if sequence[i] != 0 and sequence[i+1] != 0:
+            diff = abs(sequence[i+1] - sequence[i])
+            if diff > 1:
+                return False, f"Pace {sequence[i]} to {sequence[i+1]} (change > 1)"
+    
+    # Rule 5: Pace range is ±1 to ±5
+    for pace in sequence:
+        if abs(pace) > 5:
+            return False, f"Pace {pace} exceeds maximum (±5)"
+    
+    # Calculate position and time
+    position = 0
+    total_time = 0
+    
+    for pace in sequence:
+        if pace > 0:
+            position += 1
+            total_time += pace
+        elif pace < 0:
+            position -= 1
+            total_time += abs(pace)
+        else:
+            total_time += 1
+    
+    if position != expected_position:
+        return False, f"Position {position} != {expected_position}"
+    
+    if total_time > time_limit:
+        return False, f"Time {total_time} > {time_limit}"
+    
+    return True, f"Valid (pos={position}, time={total_time}/{time_limit})"
+
 def find_optimal_sequence(target_pos, time_limit):
     """
-    Find the optimal sequence to reach target_pos within time_limit.
+    Generate a pace sequence to reach target_pos within time_limit.
     
-    Strategy: Use dynamic programming or greedy approach to minimize total cost.
-    We can use pace values from 1 to 5 (or -1 to -5 for left movement).
+    Rules (from Felix's solution):
+    - Start and end at pace 0
+    - From pace 0, can ONLY jump to ±5 (not to any other pace)
+    - To pace 0, can ONLY jump from ±5 (not from any other pace)
+    - When pace is non-zero, can only change by ±1 each step
+    - At pace P (P ≠ 0): move by sign(P)*1, costs abs(P) time units
+    
+    Strategy: Use pace 1 (fastest) for large distances with tight time limits
+    - 0 → 5 → 4 → 3 → 2 → 1 → (stay at 1) → 2 → 3 → 4 → 5 → 0
     """
     if target_pos == 0:
         return [0]
     
-    # Direction: positive for right, negative for left
     direction = 1 if target_pos > 0 else -1
-    abs_target = abs(target_pos)
+    target = abs(target_pos)
     
-    # For the exact examples, return the known optimal solutions
-    if target_pos == 2 and time_limit == 25:
-        return [0, 5, 5, 0]
-    elif target_pos == 5 and time_limit == 39:
-        return [0, 5, 4, 3, 4, 5, 0]
-    elif target_pos == -7 and time_limit == 46:
-        return [0, -5, -4, -3, -2, -3, -4, -5, 0]
+    sequence = [0]
     
-    # For other cases, use a greedy approach
-    # Try to minimize cost by using lower-cost moves when possible
+    # Special cases for very small targets
+    if target == 1:
+        sequence.extend([5 * direction, 0])
+        return sequence
+    elif target == 2:
+        sequence.extend([5 * direction, 5 * direction, 0])
+        return sequence
     
-    sequence = [0]  # Start with staying put
-    remaining_moves = abs_target
-    remaining_time = time_limit - 1  # Account for initial stay
+    # For targets >= 9, use pace 1 (fastest, minimal time cost)
+    # Pattern: 0 → 5 → 4 → 3 → 2 → 1 → (stay at 1) → 2 → 3 → 4 → 5 → 0
+    # Ramp down: 5→4→3→2→1 = 5 moves, time = 5+4+3+2+1 = 15
+    # Stay at 1: N moves, time = N
+    # Ramp up: 2→3→4→5 = 4 moves, time = 2+3+4+5 = 14
+    # Total: 9 + N moves, 29 + N time
     
-    # Generate moves greedily
-    moves = []
-    while remaining_moves > 0 and remaining_time > 1:  # Save 1 time unit for final stay
-        # Find the best pace value for this move
-        best_pace = find_best_pace(remaining_moves, remaining_time - 1)  # -1 for final stay
+    if target >= 9:
+        extra_moves_at_1 = target - 9
         
-        if best_pace is None:
-            # Can't complete within time limit, use minimal cost approach
-            best_pace = 1
+        # Ramp down from 5 to 1
+        for pace in range(5, 0, -1):
+            sequence.append(pace * direction)
         
-        moves.append(best_pace * direction)
-        remaining_moves -= 1
-        remaining_time -= abs(best_pace)
+        # Stay at pace 1
+        for _ in range(extra_moves_at_1):
+            sequence.append(1 * direction)
+        
+        # Ramp up from 2 to 5
+        for pace in range(2, 6):
+            sequence.append(pace * direction)
+        
+        sequence.append(0)
+        return sequence
     
-    sequence.extend(moves)
-    sequence.append(0)  # End with staying put
+    # For smaller targets (3-8), use symmetric valley pattern or adjusted pattern
+    # Valley depths: min_pace=3 gives 5 moves, min_pace=2 gives 7 moves, etc.
+    # These give odd numbers: 1, 3, 5, 7, 9
     
+    # Check for exact match with valley pattern
+    for min_pace in range(5, 0, -1):
+        valley_moves = 2 * (5 - min_pace) + 1
+        
+        if valley_moves == target:
+            # Use this valley
+            for pace in range(5, min_pace - 1, -1):
+                sequence.append(pace * direction)
+            for pace in range(min_pace + 1, 6):
+                sequence.append(pace * direction)
+            sequence.append(0)
+            return sequence
+    
+    # For even numbers (4, 6, 8), use valley + one extra move at pace 5
+    # Example: target=4 → use valley of 3 moves + 1 extra at pace 5
+    # Pattern: 0 → 5 → 5 → 4 → 5 → 0 (gives 4 moves)
+    for min_pace in range(5, 0, -1):
+        valley_moves = 2 * (5 - min_pace) + 1
+        
+        if valley_moves == target - 1:
+            # Add one extra move at pace 5
+            sequence.append(5 * direction)
+            sequence.append(5 * direction)  # Extra move
+            for pace in range(4, min_pace - 1, -1):
+                sequence.append(pace * direction)
+            for pace in range(min_pace + 1, 6):
+                sequence.append(pace * direction)
+            sequence.append(0)
+            return sequence
+    
+    # Fallback: simple pattern for any remaining cases
+    # Just use repeated pace 5 moves (inefficient but valid)
+    for _ in range(target):
+        sequence.append(5 * direction)
+    sequence.append(0)
     return sequence
-
-def find_best_pace(remaining_moves, remaining_time):
-    """
-    Find the best pace value for the current move to minimize total cost.
-    """
-    if remaining_moves <= 0:
-        return None
-    
-    # If we're running out of time, use high pace values
-    if remaining_time < remaining_moves:
-        return None  # Impossible to complete
-    
-    # If we have plenty of time, prefer low-cost moves
-    if remaining_time >= remaining_moves * 5:
-        # We can afford to use mostly low-cost moves
-        return 1
-    elif remaining_time >= remaining_moves * 3:
-        # Medium cost moves
-        return min(3, remaining_time // remaining_moves)
-    else:
-        # Need higher cost moves
-        return min(5, remaining_time // remaining_moves)
 
 def solve_level3(input_text):
     """
@@ -106,6 +191,12 @@ def solve_level3(input_text):
             break
 
         seq = find_optimal_sequence(target_pos, time_limit)
+        
+        # Validate the sequence
+        valid, msg = validate_sequence(seq, target_pos, time_limit)
+        if not valid:
+            raise ValueError(f"Generated invalid sequence for pos={target_pos}: {msg}")
+        
         outputs.append(" ".join(map(str, seq)))
 
     return "\n".join(outputs) + "\n"
