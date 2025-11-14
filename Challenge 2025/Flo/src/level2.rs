@@ -1,54 +1,55 @@
 use std::{
-    fs::{read_to_string, File},
+    fs::{self, File, read_to_string},
     io::{Read, Write},
 };
 
-struct Room {
-    x: i32,
-    y: i32,
-    desks: i32,
+struct TimeDistance
+{
+    time : i32,
+    distance : i32,
 }
 
-pub fn run() {
-    do_run("example");
-    for i in 1..=5 {
-        do_run(&i.to_string())
-    }
-}
+pub fn part1() {
+    // let filename = "level1_1_small";
+    let filename = "level2_0_example";
+    let level = "level2";
 
-pub fn do_run(sublevel: &str) {
-    let mut file = File::open(&format!("input/level2/level2_{sublevel}.in")).unwrap();
+    let mut file = File::open(format!("./../Input/{level}/{filename}.in")).unwrap();
     let mut filecontent = String::new();
     file.read_to_string(&mut filecontent).unwrap();
 
     let mut lines = filecontent.lines();
-    let room_count: i32 = lines.next().unwrap().parse().unwrap();
-    let mut rooms = Vec::new();
-    for line in lines {
-        let mut token: std::str::SplitAsciiWhitespace<'_> = line.split_ascii_whitespace();
-        rooms.push(Room {
-            x: token.next().unwrap().parse().unwrap(),
-            y: token.next().unwrap().parse().unwrap(),
-            desks: token.next().unwrap().parse().unwrap(),
-        });
+    let number_manover: i32 = lines.next().unwrap().parse().unwrap();
+    let mut manover_totals = Vec::new();
+    for manover in lines {
+
+        let mut time = 0;
+        let mut distance = 0;
+        for pace_str in  manover.split_ascii_whitespace()
+        {
+            let pace = pace_str.parse::<i32>().unwrap();
+            distance += pace.signum();
+            if pace == 0 {
+                time += 1;
+            } 
+            else {
+                time += pace.abs();
+            }           
+        }
+
+        manover_totals.push(TimeDistance{time, distance});
+        
     }
 
-    assert!(rooms.len() == room_count as usize);
+    assert!(manover_totals.len() == number_manover as usize);
 
     let mut outstring = String::new();
-    for r in rooms {
-        let mut table_id = 1;
-        for y in 0..r.y {
-            for x in 0..(r.x / 3) {
-                outstring.push_str(&format!("{0} {0} {0} ", table_id));
-                table_id += 1;
-            }
-            outstring.push('\n');
-        }
-        outstring.push('\n');
+    for m in manover_totals {
+        outstring.push_str(&format!("{0} {1}\n", m.distance, m.time));
     }
 
-    let mut outfile = File::create(&format!("output/level2/level2_{sublevel}.out")).unwrap();
+    std::fs::create_dir_all(format!("output/{level}")).unwrap();
+    let mut outfile = File::create(format!("output/{level}/{filename}.out")).unwrap();
 
     outfile.write_all(outstring.as_bytes()).unwrap();
 }

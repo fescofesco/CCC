@@ -5,6 +5,6 @@ mod level4;
 mod level5;
 
 fn main() {
-    level1::part1();
+    level2::part1();
 }
 
