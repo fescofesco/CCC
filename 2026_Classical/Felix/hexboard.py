@@ -47,3 +47,33 @@ def in_bounds(grid: Grid, row: int, col: int) -> bool:
 def find_all(grid: Grid, chars: str) -> list[tuple[int, int, str]]:
     """Every (row, col, char) whose char is in `chars`, in reading order."""
     return [(i, j, c) for i, line in enumerate(grid) for j, c in enumerate(line) if c in chars]
+
+
+def ray(grid: Grid, row: int, col: int, direction: tuple[int, int], passable: str = "O"):
+    """Yield the (row, col) cells from the start position in `direction`, as long as each cell's
+    character is in `passable`. The start position itself is not yielded."""
+    d_row, d_col = direction
+    row, col = row + d_row, col + d_col
+    while in_bounds(grid, row, col) and grid[row][col] in passable:
+        yield row, col
+        row, col = row + d_row, col + d_col
+
+
+def emitters(grid: Grid) -> list[tuple[int, int, tuple[int, int]]]:
+    """Every emitter on the board as (row, col, direction)."""
+    return [(i, j, DIRECTIONS[int(c)]) for i, j, c in find_all(grid, "123456")]
+
+
+def read_boards(text: str) -> list[tuple[int, Grid]]:
+    """Parse the level 2+ input format: N, then N boards each made of an 'r rows cols' header line
+    followed by the board lines, with blank lines between boards. Returns [(radius, grid), ...]."""
+    from ccc import blocks
+
+    paragraphs = blocks(text)
+    n = int(paragraphs[0][0])
+    paragraphs[0] = paragraphs[0][1:]  # the first paragraph starts with N
+    boards = []
+    for lines in paragraphs[:n]:
+        radius, height, _width = map(int, lines[0].split())
+        boards.append((radius, parse(lines[1 : 1 + height])))
+    return boards
