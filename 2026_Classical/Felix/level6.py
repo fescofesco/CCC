@@ -348,11 +348,11 @@ def single_cursor_pass(r, cells, halo, k, p, q, starts):
 
 
 def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0,
-                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1):
+                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1, joint=False):
     """One pass by the painter (greedy, or beam search when width > 1), optionally continuing a
     prefix program from a given emitter state with only `missing` cells left; whatever the painter
     cannot reach is done by one cursor."""
-    painter = Painter(r, cells, halo, emitters, extra)
+    painter = Painter(r, cells, halo, emitters, extra, joint)
     lines = list(prefix) if prefix else []
     if pos is not None:
         painter.pos.update({k: pos[k] for k in emitters if k in pos})
@@ -381,7 +381,7 @@ def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, l
 def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER_SETS, starts: int = 8,
                 report: dict | None = None, seeds: int = 1, lookahead_top: int = 0, sweeps: bool = False,
                 shorten_top: int = 0, shorten_budget: float = 2.0, extra_seeds: int = 0,
-                beam_width: int = 0, beam_extra: bool = False) -> list[list[str]]:
+                beam_width: int = 0, beam_extra: bool = False, joint_width: int = 0, joint_seeds: int = 1) -> list[list[str]]:
     """Try every strategy variant and keep the shortest verified program.
 
     seeds: number of random tie-break seeds per painter variant.
@@ -430,6 +430,13 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
                     consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}b{beam_width}X",
                              painter_pass(r, cells, halo, emitters, starts, heuristic, 0, width=beam_width,
                                           extra=third_family(emitters)))
+    if joint_width > 0:  # all six emitters searched jointly (beam search, or greedy for width 1)
+        for emitters in emitter_sets:
+            for heuristic in ("cursor", "emitter"):
+                for seed in range(joint_seeds):
+                    consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}j{joint_width}s{seed}",
+                             painter_pass(r, cells, halo, emitters, starts, heuristic, seed, width=joint_width,
+                                          extra=third_family(emitters), joint=True))
     if sweeps:
         for fill, cutters in SWEEP_CONFIGS:
             for direction in (1, -1):

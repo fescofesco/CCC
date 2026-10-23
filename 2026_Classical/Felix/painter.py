@@ -39,12 +39,13 @@ def third_family(emitters) -> tuple[int, int]:
 
 
 class Painter:
-    def __init__(self, r: int, cells, halo: set, emitters=(1, 4, 3, 6), extra=()):
+    def __init__(self, r: int, cells, halo: set, emitters=(1, 4, 3, 6), extra=(), joint: bool = False):
         self.r = r
         self.n = 6 * r
         self.W = 2 * r - 1
         self.main = tuple(emitters)
         self.extra = tuple(extra)
+        self.joint = joint and bool(extra)  # search all six emitters jointly instead of extras on top of the best mains
         self.E = self.main + self.extra
         assert len(self.main) == 4
         self.family_a = (self.main[0], self.main[1])
@@ -141,6 +142,23 @@ class Painter:
     def candidates(self, pos: dict, on: dict, missing: set, top_extra: int = 12):
         """Safe (actions, newpos, newon, painted, gain, toggles) tuples for one tick."""
         out = []
+        if self.joint:
+            for combo in COMBOS4:
+                state = self.apply(pos, on, self.main, combo)
+                if state is None:
+                    continue
+                for combo2 in COMBOS2 + [(0, 0)]:
+                    state2 = self.apply(state[0], state[1], self.extra, combo2)
+                    if state2 is None:
+                        continue
+                    painted = self.painted_cells(*state2)
+                    if painted is None:
+                        continue
+                    gain = sum(1 for c in painted if c in missing)
+                    actions = dict(zip(self.main, combo))
+                    actions.update(zip(self.extra, combo2))
+                    out.append((actions, state2[0], state2[1], painted, gain, combo.count("T") + combo2.count("T")))
+            return out
         for combo in COMBOS4:
             state = self.apply(pos, on, self.main, combo)
             if state is None:
