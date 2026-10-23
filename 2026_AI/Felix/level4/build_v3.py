@@ -33,6 +33,7 @@ DEFAULTS = {
     "scale": 1.0 / 120.0,
     "threat": [6.0, 10.0, 8.0, 7.0, 10.0, 4.0],     # per piece type
     "danger": 1.0,
+    "danger_ek_mult": 1.0,   # mover weighs its threat on enemy kernel higher
     "fw_kernel": 25.0,
     "fw_piece": 6.0,
     "capture": [2.0, 3.6, 2.5, 3.0, 4.0, 8.0],
@@ -74,15 +75,18 @@ def build(params: dict, out: Path) -> None:
             w_to[(ENEMY + pi) * NUM_SQ + sq, sq] = p["capture"][pi]
             w_from[pi * NUM_SQ + sq, sq] = p["from_piece"][pi]
 
-    kern5 = np.ones((5, 5), dtype=np.float32)
-    kern5[1:4, 1:4] = 2.0
-    kern5[2, 2] = 3.0
-    kern_def = kern5.copy()
-    kern_def[2, 2] = 0.0  # defense map: pressure from OTHER squares only
-    w_conv = np.zeros((3, NUM_PLANES, 5, 5), dtype=np.float32)
+    # 7x7 pressure window: sliders (Ice, Daemon, Trace) strike at range 2-3
+    kern7 = np.zeros((7, 7), dtype=np.float32)
+    for dr in range(-3, 4):
+        for dc in range(-3, 4):
+            d = max(abs(dr), abs(dc))
+            kern7[dr + 3, dc + 3] = {0: 3.0, 1: 2.5, 2: 1.5, 3: 0.75}[d]
+    kern_def = kern7.copy()
+    kern_def[3, 3] = 0.0  # defense map: pressure from OTHER squares only
+    w_conv = np.zeros((3, NUM_PLANES, 7, 7), dtype=np.float32)
     for pi in range(6):
-        w_conv[0, ENEMY + pi] = kern5 * p["threat"][pi]
-        w_conv[1, pi] = kern5 * p["threat"][pi]
+        w_conv[0, ENEMY + pi] = kern7 * p["threat"][pi]
+        w_conv[1, pi] = kern7 * p["threat"][pi]
         w_conv[2, ENEMY + pi] = kern_def * p["threat"][pi]
 
     ring0 = np.zeros((1, 1, N, N), dtype=np.float32)
@@ -120,6 +124,7 @@ def build(params: dict, out: Path) -> None:
         f32("one", np.array(1.0)),
         f32("kr_late", kr_late),
         f32("inv28", np.array(scale / 28.0)),
+        f32("w_ekmult", np.array(p["danger_ek_mult"])),
     ]
 
     nodes = [
@@ -127,7 +132,7 @@ def build(params: dict, out: Path) -> None:
         helper.make_node("Gemm", ["flat", "W_from", "b_from"], ["from_lin"]),
         helper.make_node("Gemm", ["flat", "W_to", "b_to"], ["to_lin"]),
         helper.make_node("Conv", ["observation", "W_conv", "b_conv"],
-                         ["press"], pads=[2, 2, 2, 2]),
+                         ["press"], pads=[3, 3, 3, 3]),
         helper.make_node("Slice", ["press", "c0", "c1", "axch"], ["press_en"]),
         helper.make_node("Slice", ["press", "c1", "c2", "axch"], ["press_own"]),
         helper.make_node("Slice", ["press", "c2", "c3", "axch"], ["press_def"]),
@@ -152,7 +157,8 @@ def build(params: dict, out: Path) -> None:
         helper.make_node("Mul", ["ek_plane", "press_own"], ["ekd_map"]),
         helper.make_node("ReduceSum", ["okd_map", "ax123"], ["okd"], keepdims=0),
         helper.make_node("ReduceSum", ["ekd_map", "ax123"], ["ekd"], keepdims=0),
-        helper.make_node("Sub", ["ekd", "okd"], ["dd"]),
+        helper.make_node("Mul", ["ekd", "w_ekmult"], ["ekd_m"]),
+        helper.make_node("Sub", ["ekd_m", "okd"], ["dd"]),
         helper.make_node("Mul", ["dd", "w_danger"], ["danger_v"]),
         helper.make_node("Slice", ["observation", "s_u", "e_u", "axch"],
                          ["urg"]),
