@@ -180,8 +180,9 @@ def transition(beams: Beams, pos: dict, on: dict, target: dict, fill, P: set, ha
     return None
 
 
-def sweep_pass(r: int, cells: set, halo: set, fill=(1, 4), cutters=(3, 6), direction: int = 1):
-    """Returns (lines, end_pos, end_on, leftover cells) or None if nothing could be filled."""
+def sweep_pass(r: int, cells: set, halo: set, fill=(1, 4), cutters=(3, 6), direction: int = 1, max_lines: int = 0):
+    """Returns (lines, end_pos, end_on, leftover cells) or None if nothing could be filled.
+    With max_lines > 0 the sweep stops after that many filled lines (used to seed other searches)."""
     beams = Beams(r, tuple(fill) + tuple(cutters))
     f1, f2 = fill
     P = set(cells)
@@ -199,6 +200,7 @@ def sweep_pass(r: int, cells: set, halo: set, fill=(1, 4), cutters=(3, 6), direc
     on = {k: False for k in beams.E}
     program: list[list[str]] = []
     painted_total: set = set()
+    filled = 0
 
     for p1, p2, line_cells in lines_of_fill:
         H = sorted(c for c in line_cells if c in halo)
@@ -239,6 +241,9 @@ def sweep_pass(r: int, cells: set, halo: set, fill=(1, 4), cutters=(3, 6), direc
         lines, (pos, on) = result
         program += lines
         painted_total |= line_cells - set(H)
+        filled += 1
+        if max_lines and filled >= max_lines:
+            break
 
     if not program:
         return None

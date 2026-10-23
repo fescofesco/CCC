@@ -424,7 +424,8 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
                 report: dict | None = None, seeds: int = 1, lookahead_top: int = 0, sweeps: bool = False,
                 shorten_top: int = 0, shorten_budget: float = 2.0, extra_seeds: int = 0,
                 beam_width: int = 0, beam_extra: bool = False, joint_width: int = 0, joint_seeds: int = 1,
-                joint_lookahead: int = 0, joint_heuristics=("cursor", "emitter"), second_pass_top: int = 0) -> list[list[str]]:
+                joint_lookahead: int = 0, joint_heuristics=("cursor", "emitter"), second_pass_top: int = 0,
+                sweep_seed: bool = False) -> list[list[str]]:
     """Try every strategy variant and keep the shortest verified program.
 
     seeds: number of random tie-break seeds per painter variant.
@@ -500,6 +501,21 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
                     consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, 0,
                                                 prefix=prefix, pos=pos, on=on, missing=leftover))
 
+    if joint_width > 0 and sweep_seed:  # joint beam that starts from the sweep's first line fill
+        for fill, cutters in SWEEP_CONFIGS:
+            if len(cutters) != 2:
+                continue
+            for direction in (1, -1):
+                result = sweep_pass(r, cells, halo, fill, cutters, direction, max_lines=1)
+                if result is None:
+                    continue
+                prefix, pos, on, leftover = result
+                emitters = fill + cutters
+                for heuristic in joint_heuristics:
+                    name = f"seed{''.join(map(str, fill))}c{''.join(map(str, cutters))}{'+' if direction > 0 else '-'}{heuristic[:2]}j{joint_width}"
+                    consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, 0, width=joint_width,
+                                                extra=third_family(emitters), joint=True, prefix=prefix, pos=pos, on=on,
+                                                missing=leftover))
     # fresh second pass from the end state of the best passes (K >= 2): the first pass is tuned
     # for painting early from the corners, a pass that starts positioned and switched on can be shorter
     if k >= 2 and second_pass_top and joint_width > 0:
