@@ -41,8 +41,14 @@ removed at that state), the same lines backwards, idle, forwards, ...
 | 3 | Variants: two tie-break heuristics, random seeds, one-tick lookahead, line sweeps, pass shortening; keep the shortest verified program per board. | 30,405 |
 | 4 | Beam search instead of greedy (keep the N best states per tick). | 24,029 |
 | 5 | **Joint search over all six emitters** (4,096 actions per state): line fills plus up to twelve crossings per tick. | 19,023 |
-| 6 | Wider beams, more seeds, merged per board over several runs. | ~18,500 |
-| 7 | **Fresh second pass**: pass 1 is optimised for painting early from the corners; a new beam search from its end state (emitters already placed and on) gives a shorter repeatable core; later passes replay that one. | in progress |
+| 6 | Wider beams, more seeds, merged per board over several runs. | 18,473 |
+| 7 | **Fresh second pass**: pass 1 is optimised for painting early from the corners; a new beam search from its end state (emitters already placed and on) gives a shorter repeatable core; later passes replay that one. | 17,371 |
+
+Final files: medium 6,652, large 5,596, enormous 5,123 lines. Things that did
+not help and are off by default: adaptive beam width in the slow tail, a
+six-emitter block-wise greedy, the "cover" heuristic as primary key, line
+sweeps as the main strategy, seeding the beam with the sweep's first row fill,
+and the pass-shortening local search (passes are already tight line by line).
 
 Every candidate program is re-simulated with the level 5 engine
 (`level5.count_submissions`) and must submit exactly K times before it is
