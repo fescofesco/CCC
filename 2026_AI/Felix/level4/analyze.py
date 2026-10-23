@@ -5,7 +5,8 @@ M = Path(__file__).resolve().parent / "matches"
 games = {}
 for f in M.glob("tournament-matches*.json"):
     for m in json.load(open(f)):
-        games[m["match_id"]] = (m["you"], m["protocol"], m["played_at"])
+        p = m.get("protocol")
+        if p: games[m["match_id"]] = (m.get("you"), p, m.get("played_at", ""))
 for f in M.glob("match-*.txt"):
     mid = int(re.search(r"(\d+)", f.name).group(1))
     if mid not in games:
