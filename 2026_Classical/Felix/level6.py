@@ -33,7 +33,9 @@ from ccc import blocks, run_level
 from fabricator import Fabricator
 from hexboard import CORNER_INDEX, DIRECTIONS, Grid, border_ring, find_all, in_bounds, parse, ray, render
 from level5 import count_submissions
-from painter import EMITTER_SETS, Painter
+from painter import EMITTER_SETS, Painter, third_family
+from shorten import ALL_EMITTERS, shorten
+from sweep import SWEEP_CONFIGS, Beams, sweep_pass
 
 INF = 10**9
 PAIRS = [(p, q) for p in (1, 4) for q in (2, 3, 5, 6)] + [(p, q) for p in (2, 5) for q in (3, 6)]
@@ -345,9 +347,22 @@ def single_cursor_pass(r, cells, halo, k, p, q, starts):
     return planner.program(planner.best_path(starts))
 
 
-def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0):
-    painter = Painter(r, cells, halo, emitters)
-    lines, missing = painter.run(max_stuck=2 * r + 2, heuristic=heuristic, seed=seed, lookahead=lookahead)
+def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0,
+                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1):
+    """One pass by the painter (greedy, or beam search when width > 1), optionally continuing a
+    prefix program from a given emitter state with only `missing` cells left; whatever the painter
+    cannot reach is done by one cursor."""
+    painter = Painter(r, cells, halo, emitters, extra)
+    lines = list(prefix) if prefix else []
+    if pos is not None:
+        painter.pos.update({k: pos[k] for k in emitters if k in pos})
+        painter.on.update({k: on[k] for k in emitters if k in on})
+    if width > 1:
+        more, missing = painter.beam(width, max_ticks=3 * len(cells) + 6 * r, heuristic=heuristic, seed=seed, missing=missing)
+        lines += more
+    if width <= 1 or missing:
+        more, missing = painter.run(max_stuck=2 * r + 2, heuristic=heuristic, seed=seed, lookahead=lookahead, missing=missing)
+        lines += more
     if missing:
         a, b = painter.cursors[0]
         off_line = ["-"] * 6
@@ -364,33 +379,85 @@ def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, l
 
 
 def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER_SETS, starts: int = 8,
-                report: dict | None = None, seeds: int = 1, lookahead_top: int = 0) -> list[list[str]]:
+                report: dict | None = None, seeds: int = 1, lookahead_top: int = 0, sweeps: bool = False,
+                shorten_top: int = 0, shorten_budget: float = 2.0, extra_seeds: int = 0,
+                beam_width: int = 0, beam_extra: bool = False) -> list[list[str]]:
     """Try every strategy variant and keep the shortest verified program.
 
     seeds: number of random tie-break seeds per painter variant.
-    lookahead_top: re-run this many of the best painter variants with a one-tick lookahead."""
+    lookahead_top: re-run this many of the best painter variants with a one-tick lookahead.
+    sweeps: also try the line-sweep strategy (sweep.py) with the painter finishing the leftovers.
+    shorten_top: run the local search of shorten.py on this many of the best passes."""
     cells_list = [(i, j) for i, j, _ in find_all(pattern, "M")]
     cells, halo = pattern_sets(r, cells_list)
 
-    candidates = {}
+    passes: dict[str, list[list[str]]] = {}
+    candidates: dict[str, list[list[str]]] = {}
+
+    def consider(name: str, single_pass: list[list[str]]) -> int | None:
+        prog = assemble(r, cells, halo, k, single_pass)
+        if prog is None:
+            return None
+        passes[name] = single_pass
+        candidates[name] = prog
+        return len(prog)
+
     for p, q in pairs:
-        prog = assemble(r, cells, halo, k, single_cursor_pass(r, cells, halo, k, p, q, starts))
-        if prog is not None:
-            candidates[f"cursor{p}{q}"] = prog
+        consider(f"cursor{p}{q}", single_cursor_pass(r, cells, halo, k, p, q, starts))
     variants = []
     for emitters in emitter_sets:
         for heuristic in ("cursor", "emitter"):
             for seed in range(seeds):
-                prog = assemble(r, cells, halo, k, painter_pass(r, cells, halo, emitters, starts, heuristic, seed))
-                if prog is not None:
-                    name = f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}"
-                    candidates[name] = prog
-                    variants.append((len(prog), emitters, heuristic, seed))
+                name = f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}"
+                length = consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, seed))
+                if length is not None:
+                    variants.append((length, emitters, heuristic, seed))
     variants.sort()
     for _length, emitters, heuristic, seed in variants[:lookahead_top]:
-        prog = assemble(r, cells, halo, k, painter_pass(r, cells, halo, emitters, starts, heuristic, seed, lookahead=1))
-        if prog is not None:
-            candidates[f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}L"] = prog
+        consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}L",
+                 painter_pass(r, cells, halo, emitters, starts, heuristic, seed, lookahead=1))
+    for emitters in emitter_sets:
+        for heuristic in ("cursor", "emitter"):
+            for seed in range(extra_seeds):
+                consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}X",
+                         painter_pass(r, cells, halo, emitters, starts, heuristic, seed, extra=third_family(emitters)))
+    if beam_width > 1:
+        for emitters in emitter_sets:
+            for heuristic in ("cursor", "emitter"):
+                consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}b{beam_width}",
+                         painter_pass(r, cells, halo, emitters, starts, heuristic, 0, width=beam_width))
+                if beam_extra:
+                    consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}b{beam_width}X",
+                             painter_pass(r, cells, halo, emitters, starts, heuristic, 0, width=beam_width,
+                                          extra=third_family(emitters)))
+    if sweeps:
+        for fill, cutters in SWEEP_CONFIGS:
+            for direction in (1, -1):
+                result = sweep_pass(r, cells, halo, fill, cutters, direction)
+                if result is None:
+                    continue
+                prefix, pos, on, leftover = result
+                emitters = fill + cutters[:2]
+                if len(cutters) > 2:  # the painter drives four emitters: switch the extra cutters off
+                    off_line = ["-"] * 6
+                    for c in cutters[2:]:
+                        if on[c]:
+                            off_line[c - 1] = "T"
+                    if "T" in off_line:
+                        prefix = prefix + [off_line]
+                for heuristic in ("cursor", "emitter"):
+                    name = f"sweep{''.join(map(str, fill))}c{''.join(map(str, cutters))}{'+' if direction > 0 else '-'}{heuristic[0]}"
+                    consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, 0,
+                                                prefix=prefix, pos=pos, on=on, missing=leftover))
+
+    # local search on the best few passes: delete / merge / shift lines while the pass stays valid
+    if shorten_top:
+        ranked = sorted(candidates, key=lambda n: len(candidates[n]))[:shorten_top]
+        beams = Beams(r, ALL_EMITTERS)
+        for name in ranked:
+            shorter = shorten(r, cells, halo, passes[name], budget=shorten_budget, beams=beams)
+            if len(shorter) < len(passes[name]):
+                consider(name + "S", shorter)
 
     name, best = min(candidates.items(), key=lambda item: len(item[1]))
     if report is not None:
@@ -417,7 +484,8 @@ def solve(text: str) -> str:
         starts = 12 if m <= 60 else 6 if m <= 150 else 3
         report: dict = {}
         seeds = 4 if m <= 60 else 3 if m <= 150 else 2
-        program = solve_board(r, pattern, k, pairs, EMITTER_SETS, starts, report, seeds=seeds, lookahead_top=2)
+        program = solve_board(r, pattern, k, pairs, EMITTER_SETS, starts, report, seeds=seeds, lookahead_top=2,
+                              sweeps=True, shorten_top=2, shorten_budget=1.5, extra_seeds=2 if m <= 150 else 1)
         total += len(program)
         out.append("\n".join(" ".join(line) for line in program) + "\n\n")
         print(f"  board {b + 1}/{n}: r={r} cells={m} K={k} -> {len(program)} lines by {report['best']}"
