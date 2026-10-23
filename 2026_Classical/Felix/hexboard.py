@@ -77,3 +77,36 @@ def read_boards(text: str) -> list[tuple[int, Grid]]:
         radius, height, _width = map(int, lines[0].split())
         boards.append((radius, parse(lines[1 : 1 + height])))
     return boards
+
+
+def border_ring(r: int) -> list[tuple[int, int]]:
+    """The 6r border positions of a radius-r board in clockwise order as seen on screen,
+    starting at the top-left corner (0, r)."""
+    ring = [(0, c) for c in range(r, 3 * r + 1, 2)]                  # top row, left to right
+    ring += [(i, 3 * r + i) for i in range(1, r + 1)]                # upper-right edge, down to the right corner
+    ring += [(i, 5 * r - i) for i in range(r + 1, 2 * r + 1)]        # lower-right edge, down to the bottom-right corner
+    ring += [(2 * r, c) for c in range(3 * r - 2, r - 1, -2)]        # bottom row, right to left
+    ring += [(i, i - r) for i in range(2 * r - 1, r - 1, -1)]        # lower-left edge, up to the left corner
+    ring += [(i, r - i) for i in range(r - 1, 0, -1)]                # upper-left edge, up to just before the start
+    return ring
+
+
+# Ring index of each emitter's home corner, as a multiple of the radius (level 4).
+CORNER_INDEX: dict[int, int] = {2: 0, 3: 1, 4: 2, 5: 3, 6: 4, 1: 5}
+
+
+def interfere(grid: Grid, sources: list[tuple[int, int, tuple[int, int]]]) -> Grid:
+    """Half-power beams (level 3 rule): every (row, col, direction) source fires a beam that passes
+    through 'O' and 'M'. A cell hit by exactly two beams becomes 'M'; three or more beams destroy
+    its matter; fewer than two leave it unchanged."""
+    from collections import Counter
+
+    hits: Counter[tuple[int, int]] = Counter()
+    for row, col, direction in sources:
+        hits.update(ray(grid, row, col, direction, passable="OM"))
+    for (row, col), n in hits.items():
+        if n == 2:
+            grid[row][col] = "M"
+        elif n >= 3:
+            grid[row][col] = "O"
+    return grid
