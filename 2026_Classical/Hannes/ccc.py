@@ -29,6 +29,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+MergeResult = Callable[[str, str, str], str]
+
 FELIX_DIR = Path(__file__).resolve().parent
 TRACK_DIR = FELIX_DIR.parent
 INPUT_ROOT = TRACK_DIR / "Input"
@@ -53,8 +55,12 @@ def blocks(text: str) -> list[list[str]]:
     return [p.split("\n") for p in text.strip().split("\n\n") if p.strip()]
 
 
-def run_level(level: int, solve: Callable[[str], str]) -> None:
-    """Run solve() over every input file of a level and write the outputs."""
+def run_level(level: int, solve: Callable[[str], str], merge_result: MergeResult | None = None) -> None:
+    """Run solve() over every input file of a level and write the outputs.
+
+    Optimization levels can provide merge_result(input, generated, incumbent)
+    to preserve shorter valid programs from an earlier run.
+    """
     inputs = sorted(input_dir(level).glob(f"in_level-{level}_*.txt"))
     if not inputs:
         sys.exit(f"No input files found in {input_dir(level)}")
@@ -62,9 +68,14 @@ def run_level(level: int, solve: Callable[[str], str]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for in_file in inputs:
-        result = solve(read_text(in_file))
+        input_text = read_text(in_file)
+        result = solve(input_text)
         out_file = out_dir / in_file.name.replace("in_", "out_", 1)
-        out_file.write_text(result, encoding="utf-8", newline="\n")
+        if merge_result is not None and out_file.exists():
+            result = merge_result(input_text, result, read_text(out_file))
+        temporary = out_file.with_suffix(out_file.suffix + ".tmp")
+        temporary.write_text(result, encoding="utf-8", newline="\n")
+        temporary.replace(out_file)
 
         status = ""
         expected_file = in_file.with_name(out_file.name)

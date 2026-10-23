@@ -41,7 +41,7 @@ INF = 10**9
 PAIRS = [(p, q) for p in (1, 4) for q in (2, 3, 5, 6)] + [(p, q) for p in (2, 5) for q in (3, 6)]
 REVERSE = {"F": "B", "B": "F", "T": "T", "-": "-"}
 IDLE = ["-"] * 6
-random.seed(42)
+INSTRUCTIONS = frozenset("FBT-")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -96,7 +96,8 @@ class Planner:
     """Orders the cells for one cursor and writes the instruction lines of a single pass."""
 
     def __init__(self, cursor: Cursor, cells: list[tuple[int, int]], halo: set, k: int,
-                 start_cfg: tuple[int, int] | None = None, on: tuple[bool, bool] = (False, False)):
+                 start_cfg: tuple[int, int] | None = None, on: tuple[bool, bool] = (False, False),
+                 seed: int = 42):
         self.cur = cursor
         self.k = k
         self.cells = cells
@@ -104,6 +105,7 @@ class Planner:
         self.forbidden = {cfg for cfg, cell in cursor.cross.items() if cell in halo}
         self.start_cfg = start_cfg if start_cfg is not None else (cursor.start[cursor.p], cursor.start[cursor.q])
         self.on = on
+        self.rng = random.Random(seed)
         m = len(cells)
         self.D = [[0] * m for _ in range(m)]
         for i, cfg in enumerate(self.cfgs):
@@ -213,7 +215,7 @@ class Planner:
 
     def best_path(self, starts: int) -> list[int]:
         m = len(self.cells)
-        candidates = list(range(m)) if m <= starts else random.sample(range(m), starts)
+        candidates = list(range(m)) if m <= starts else self.rng.sample(range(m), starts)
         best, best_cost = None, INF
         for s in candidates:
             path = self.improve(self.nearest_neighbour(s))
@@ -342,8 +344,16 @@ def assemble(r: int, cells: set, halo: set, k: int, single_pass: list[list[str]]
 # ---------------------------------------------------------------------------------------------
 # strategies
 # ---------------------------------------------------------------------------------------------
+def planner_seed(r: int, p: int, q: int, cells, variant: int = 0) -> int:
+    """Stable seed so a board has the same cursor candidates in every run order."""
+    seed = 42 + 97 * r + 193 * p + 389 * q + 769 * variant
+    for row, col in sorted(cells):
+        seed = (seed * 1_000_003 + 101 * row + col) & 0xFFFFFFFF
+    return seed
+
+
 def single_cursor_pass(r, cells, halo, k, p, q, starts):
-    planner = Planner(Cursor(r, p, q), sorted(cells), halo, k)
+    planner = Planner(Cursor(r, p, q), sorted(cells), halo, k, seed=planner_seed(r, p, q, cells))
     return planner.program(planner.best_path(starts))
 
 
@@ -373,7 +383,8 @@ def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, l
         if "T" in off_line:
             lines.append(off_line)
         planner = Planner(Cursor(r, a, b), sorted(missing), halo, 1,
-                          start_cfg=(painter.offset(a), painter.offset(b)), on=(painter.on[a], False))
+                          start_cfg=(painter.offset(a), painter.offset(b)), on=(painter.on[a], False),
+                          seed=planner_seed(r, a, b, missing, seed))
         lines += planner.program(planner.best_path(starts))
     return lines
 
@@ -475,31 +486,80 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
     return best
 
 
-def solve(text: str) -> str:
+def read_cases(text: str) -> list[tuple[int, int, Grid]]:
     paragraphs = blocks(text)
     n = int(paragraphs[0][0])
     paragraphs[0] = paragraphs[0][1:]
+    cases = []
+    for lines in paragraphs[:n]:
+        r, height, _width, k = map(int, lines[0].split())
+        cases.append((r, k, parse(lines[1 : 1 + height])))
+    if len(cases) != n:
+        raise ValueError(f"expected {n} patterns, found {len(cases)}")
+    return cases
+
+
+def parse_programs(text: str) -> list[list[list[str]]]:
+    return [[line.split() for line in paragraph] for paragraph in blocks(text)]
+
+
+def valid_program(r: int, pattern: Grid, k: int, program: list[list[str]]) -> bool:
+    return (
+        bool(program)
+        and all(len(line) == 6 and all(instruction in INSTRUCTIONS for instruction in line) for line in program)
+        and count_submissions(r, pattern, program) == k
+    )
+
+
+def render_programs(programs: list[list[list[str]]]) -> str:
+    return "".join("\n".join(" ".join(line) for line in program) + "\n\n" for program in programs)
+
+
+def merge_with_incumbent(input_text: str, generated_text: str, incumbent_text: str) -> str:
+    """Keep the shortest valid program for each board, never a worse whole-file rerun."""
+    cases = read_cases(input_text)
+    generated = parse_programs(generated_text)
+    incumbent = parse_programs(incumbent_text)
+    if len(generated) != len(cases):
+        raise ValueError(f"generated {len(generated)} programs for {len(cases)} patterns")
+
+    selected = []
+    kept = 0
+    for index, ((r, k, pattern), new_program) in enumerate(zip(cases, generated), 1):
+        if not valid_program(r, pattern, k, new_program):
+            raise ValueError(f"generated program {index} is invalid")
+        old_program = incumbent[index - 1] if index <= len(incumbent) else []
+        if valid_program(r, pattern, k, old_program) and len(old_program) <= len(new_program):
+            selected.append(old_program)
+            kept += 1
+        else:
+            selected.append(new_program)
+    print(f"  preserved {kept}/{len(cases)} incumbent programs", file=sys.stderr)
+    return render_programs(selected)
+
+
+def solve(text: str) -> str:
+    cases = read_cases(text)
 
     out = []
     total = 0
     t0 = time.time()
-    for b, lines in enumerate(paragraphs[:n]):
-        r, height, _width, k = map(int, lines[0].split())
-        pattern = parse(lines[1 : 1 + height])
+    for b, (r, k, pattern) in enumerate(cases):
         m = sum(row.count("M") for row in pattern)
         pairs = PAIRS if m <= 60 else PAIRS[:4] if m <= 150 else PAIRS[:2]
         starts = 12 if m <= 60 else 6 if m <= 150 else 3
         report: dict = {}
         seeds = 4 if m <= 60 else 3 if m <= 150 else 2
         program = solve_board(r, pattern, k, pairs, EMITTER_SETS, starts, report, seeds=seeds, lookahead_top=2,
-                              sweeps=True, shorten_top=2, shorten_budget=1.5, extra_seeds=2 if m <= 150 else 1)
+                              sweeps=True, shorten_top=2, shorten_budget=1.5, extra_seeds=2 if m <= 150 else 1,
+                              joint_width=1 if r <= 5 else 0, joint_seeds=8 if r <= 5 else 1)
         total += len(program)
         out.append("\n".join(" ".join(line) for line in program) + "\n\n")
-        print(f"  board {b + 1}/{n}: r={r} cells={m} K={k} -> {len(program)} lines by {report['best']}"
+        print(f"  board {b + 1}/{len(cases)}: r={r} cells={m} K={k} -> {len(program)} lines by {report['best']}"
               f"   (total {total}, {time.time() - t0:.0f}s)", file=sys.stderr)
     print(f"  score (total lines): {total}", file=sys.stderr)
     return "".join(out)
 
 
 if __name__ == "__main__":
-    run_level(6, solve)
+    run_level(6, solve, merge_with_incumbent)
