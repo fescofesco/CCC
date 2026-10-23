@@ -75,19 +75,41 @@ def build(params: dict, out: Path) -> None:
             w_to[(ENEMY + pi) * NUM_SQ + sq, sq] = p["capture"][pi]
             w_from[pi * NUM_SQ + sq, sq] = p["from_piece"][pi]
 
-    # 7x7 pressure window: sliders (Ice, Daemon, Trace) strike at range 2-3
-    kern7 = np.zeros((7, 7), dtype=np.float32)
-    for dr in range(-3, 4):
-        for dc in range(-3, 4):
-            d = max(abs(dr), abs(dc))
-            kern7[dr + 3, dc + 3] = {0: 3.0, 1: 2.5, 2: 1.5, 3: 0.75}[d]
-    kern_def = kern7.copy()
-    kern_def[3, 3] = 0.0  # defense map: pressure from OTHER squares only
+    # Exact per-piece attack geometry in a 7x7 window (blockers ignored).
+    # All sets are symmetric under negation, so no cross-correlation flip.
+    def geom(offsets_weights):
+        k = np.zeros((7, 7), dtype=np.float32)
+        for (dr, dc), w in offsets_weights:
+            k[dr + 3, dc + 3] = w
+        return k
+
+    sgn = (1, -1)
+    atk = {
+        PING: geom([((s * d, t * d), 1.3 if d == 1 else 1.0)
+                    for s in sgn for t in sgn for d in (1, 2)]),
+        DAEMON: geom([((s * d, 0), 1.3 if d == 1 else 1.0)
+                      for s in sgn for d in (1, 2, 3)] +
+                     [((0, s * d), 1.3 if d == 1 else 1.0)
+                      for s in sgn for d in (1, 2, 3)]),
+        EXPLOIT: geom([((s * a, t * b), 1.0)
+                       for s in sgn for t in sgn for a, b in ((1, 2), (2, 1))]),
+        TRACE: geom([((s * d, t * d), 1.3 if d == 2 else 1.0)
+                     for s in sgn for t in sgn for d in (2, 3)]),
+        ICE: geom([((s * d, 0), 1.3 if d == 1 else 1.0)
+                   for s in sgn for d in (1, 2)] +
+                  [((0, s * d), 1.3 if d == 1 else 1.0)
+                   for s in sgn for d in (1, 2)] +
+                  [((s * d, t * d), 1.3 if d == 1 else 1.0)
+                   for s in sgn for t in sgn for d in (1, 2)]),
+        KERNEL: geom([((dr, dc), 1.3 if max(abs(dr), abs(dc)) == 1 else 0.5)
+                      for dr in (-2, -1, 0, 1, 2) for dc in (-2, -1, 0, 1, 2)
+                      if (dr, dc) != (0, 0)]),
+    }
     w_conv = np.zeros((3, NUM_PLANES, 7, 7), dtype=np.float32)
     for pi in range(6):
-        w_conv[0, ENEMY + pi] = kern7 * p["threat"][pi]
-        w_conv[1, pi] = kern7 * p["threat"][pi]
-        w_conv[2, ENEMY + pi] = kern_def * p["threat"][pi]
+        w_conv[0, ENEMY + pi] = atk[pi] * p["threat"][pi]
+        w_conv[1, pi] = atk[pi] * p["threat"][pi]
+        w_conv[2, ENEMY + pi] = atk[pi] * p["threat"][pi]
 
     ring0 = np.zeros((1, 1, N, N), dtype=np.float32)
     kr_late = np.zeros((1, 1, N, N), dtype=np.float32)
