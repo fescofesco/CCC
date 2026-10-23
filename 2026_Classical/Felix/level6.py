@@ -348,7 +348,8 @@ def single_cursor_pass(r, cells, halo, k, p, q, starts):
 
 
 def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0,
-                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1, joint=False):
+                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1, joint=False, tail_width=0,
+                 lookahead_factor=0):
     """One pass by the painter (greedy, or beam search when width > 1), optionally continuing a
     prefix program from a given emitter state with only `missing` cells left; whatever the painter
     cannot reach is done by one cursor."""
@@ -358,7 +359,8 @@ def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, l
         painter.pos.update({k: pos[k] for k in emitters if k in pos})
         painter.on.update({k: on[k] for k in emitters if k in on})
     if width > 1:
-        more, missing = painter.beam(width, max_ticks=3 * len(cells) + 6 * r, heuristic=heuristic, seed=seed, missing=missing)
+        more, missing = painter.beam(width, max_ticks=3 * len(cells) + 6 * r, heuristic=heuristic, seed=seed,
+                                     missing=missing, tail_width=tail_width, lookahead_factor=lookahead_factor)
         lines += more
     if width <= 1 or missing:
         more, missing = painter.run(max_stuck=2 * r + 2, heuristic=heuristic, seed=seed, lookahead=lookahead, missing=missing)
