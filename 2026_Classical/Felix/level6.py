@@ -1,17 +1,26 @@
 """Level 6 - write a short program that submits each pattern K times (optimization level).
 
-Strategy: with exactly two active beams, matter appears only at their crossing
-cell, so a pair of emitters from different direction families acts as a cursor
-that writes one cell per tick. Each emitter moves one border cell per tick, so
-the cursor makes king moves in the (line of emitter p, line of emitter q)
-configuration grid. It must never land on a halo cell (an empty cell touching
-the pattern), because that would block the pick-up arm; landing on far cells or
-outside the board is harmless. Where the halo is in the way, one emitter is
-switched off for the move (2 extra ticks). The pattern cells are ordered into a
-short path (nearest neighbour + 2-opt + or-opt), which is walked forwards and
-backwards alternately for the K repetitions, with one idle tick in between to
-re-create the cell the arm has just removed. Every program is re-simulated with
-the level 5 engine before it is written.
+Two strategies produce one "pass" (a program that paints the whole pattern
+once); the shorter verified result wins per board:
+
+* single cursor (this file): with exactly two active beams, matter appears only
+  at their crossing cell, so a pair of emitters from different direction
+  families acts as a cursor that writes one cell per tick. Each emitter moves
+  one border cell per tick, so the cursor makes king moves in the (line of p,
+  line of q) configuration grid. It must never land on a halo cell (an empty
+  cell touching the pattern), because that would block the pick-up arm; landing
+  on far cells or outside the board is harmless. Where the halo is in the way,
+  one emitter is switched off for the move (2 extra ticks). The cells are
+  ordered into a short path (nearest neighbour + 2-opt + or-opt).
+* greedy painter (painter.py): four beams paint up to four cells per tick, or a
+  whole line when two emitters of one family share it. Cells the painter cannot
+  reach are finished by the single cursor.
+
+A pass is expanded to K passes by replaying it backwards and forwards (safety
+only depends on the emitter state, so a reversed pass is valid too), with an
+idle tick at each pass boundary to re-create the cell the arm just removed. The
+program is cut right after the K-th submission and verified with the level 5
+engine before it is written.
 """
 from __future__ import annotations
 
@@ -21,14 +30,21 @@ import time
 from collections import deque
 
 from ccc import blocks, run_level
-from hexboard import CORNER_INDEX, DIRECTIONS, Grid, border_ring, find_all, parse, ray, render
+from fabricator import Fabricator
+from hexboard import CORNER_INDEX, DIRECTIONS, Grid, border_ring, find_all, in_bounds, parse, ray, render
 from level5 import count_submissions
+from painter import EMITTER_SETS, Painter
 
 INF = 10**9
 PAIRS = [(p, q) for p in (1, 4) for q in (2, 3, 5, 6)] + [(p, q) for p in (2, 5) for q in (3, 6)]
+REVERSE = {"F": "B", "B": "F", "T": "T", "-": "-"}
+IDLE = ["-"] * 6
 random.seed(42)
 
 
+# ---------------------------------------------------------------------------------------------
+# single cursor
+# ---------------------------------------------------------------------------------------------
 class Cursor:
     """Geometry of one emitter pair (p, q) on a radius-r board.
 
@@ -75,13 +91,17 @@ def jump_cost(a: tuple[int, int], b: tuple[int, int]) -> int:
 
 
 class Planner:
-    def __init__(self, cursor: Cursor, cells: list[tuple[int, int]], halo: set, k: int):
+    """Orders the cells for one cursor and writes the instruction lines of a single pass."""
+
+    def __init__(self, cursor: Cursor, cells: list[tuple[int, int]], halo: set, k: int,
+                 start_cfg: tuple[int, int] | None = None, on: tuple[bool, bool] = (False, False)):
         self.cur = cursor
         self.k = k
         self.cells = cells
         self.cfgs = [cursor.config(c) for c in cells]
         self.forbidden = {cfg for cfg, cell in cursor.cross.items() if cell in halo}
-        self.start_cfg = (cursor.start[cursor.p], cursor.start[cursor.q])
+        self.start_cfg = start_cfg if start_cfg is not None else (cursor.start[cursor.p], cursor.start[cursor.q])
+        self.on = on
         m = len(cells)
         self.D = [[0] * m for _ in range(m)]
         for i, cfg in enumerate(self.cfgs):
@@ -89,7 +109,12 @@ class Planner:
             row = self.D[i]
             for j, other in enumerate(self.cfgs):
                 row[j] = min(dist.get(other, INF), jump_cost(cfg, other))
-        self.setup = [max(abs(c[0] - self.start_cfg[0]), abs(c[1] - self.start_cfg[1])) + 1 for c in self.cfgs]
+        s = self.start_cfg
+        if all(on):  # both beams on: moving is a normal transition
+            dist, _ = self.bfs(s)
+            self.setup = [min(dist.get(c, INF), jump_cost(s, c)) for c in self.cfgs]
+        else:  # at most one beam on: moves are free, one tick to switch on at the end
+            self.setup = [max(abs(c[0] - s[0]), abs(c[1] - s[1])) + 1 for c in self.cfgs]
 
     def bfs(self, src):
         """King-move BFS over configurations that avoid the halo."""
@@ -174,7 +199,7 @@ class Planner:
                     v = rest[y] if y < len(rest) else None
                     added = k * ((D[u][node] if u is not None else 0) + (D[node][v] if v is not None else 0)
                                  - (D[u][v] if u is not None and v is not None else 0))
-                    if u is None:
+                    if u is None and v is not None:
                         added += setup[node] - setup[v]
                     gain = removed - added
                     if gain > best_gain:
@@ -195,7 +220,7 @@ class Planner:
                 best, best_cost = path, c
         return best
 
-    # ---- program generation -------------------------------------------------------------
+    # ---- program generation (one pass) --------------------------------------------------
     def program(self, path: list[int]) -> list[list[str]]:
         cur = self.cur
         p, q = cur.p, cur.q
@@ -209,14 +234,6 @@ class Planner:
 
         def step(delta: int) -> str:
             return "F" if delta > 0 else "B" if delta < 0 else "-"
-
-        cfgs = [self.cfgs[i] for i in path]
-
-        # setup: move both (inactive) emitters to the first cell, then switch both on
-        dp, dq = cfgs[0][0] - self.start_cfg[0], cfgs[0][1] - self.start_cfg[1]
-        for t in range(max(abs(dp), abs(dq))):
-            lines.append(line({p: step(dp) if t < abs(dp) else "-", q: step(dq) if t < abs(dq) else "-"}))
-        lines.append(line({p: "T", q: "T"}))
 
         def transition(a, b):
             dist, parent = self.bfs(a)
@@ -247,30 +264,138 @@ class Planner:
                         instr[on] = step(d_on)
                     lines.append(line(instr))
 
-        for pass_no in range(self.k):
-            order = cfgs if pass_no % 2 == 0 else cfgs[::-1]
-            if pass_no > 0:
-                lines.append(["-"] * 6)  # idle tick: re-create the cell the arm just removed
-            for a, b in zip(order, order[1:]):
-                transition(a, b)
+        cfgs = [self.cfgs[i] for i in path]
+        first = cfgs[0]
+        if all(self.on):
+            transition(self.start_cfg, first)
+        else:
+            dp, dq = first[0] - self.start_cfg[0], first[1] - self.start_cfg[1]
+            for t in range(max(abs(dp), abs(dq))):
+                lines.append(line({p: step(dp) if t < abs(dp) else "-", q: step(dq) if t < abs(dq) else "-"}))
+            lines.append(line({k: "T" for k, is_on in zip((p, q), self.on) if not is_on}))
+        for a, b in zip(cfgs, cfgs[1:]):
+            transition(a, b)
         return lines
 
 
-def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, starts: int = 8) -> list[list[str]]:
-    cells = [(i, j) for i, j, _ in find_all(pattern, "M")]
+# ---------------------------------------------------------------------------------------------
+# simulation helpers
+# ---------------------------------------------------------------------------------------------
+def pattern_sets(r: int, cells: list[tuple[int, int]]):
     cell_set = set(cells)
     empty = parse(render(r).split("\n"))
     halo = {(i + di, j + dj) for i, j in cells for di, dj in DIRECTIONS.values()}
     halo = {c for c in halo if c not in cell_set and empty[c[0]][c[1]] == "O"}
+    return cell_set, halo
 
-    best = None
+
+def simulate(r: int, cells: set, halo: set, program: list[list[str]]):
+    """Returns (first tick at which a pattern cell holds matter, ticks at which the arm submitted)."""
+    fab = Fabricator(r)
+    first_paint = None
+    submissions = []
+    for t, line in enumerate(program):
+        grid = fab.tick(line)
+        if first_paint is None and any(grid[i][j] == "M" for i, j in cells):
+            first_paint = t
+        if all(grid[i][j] == "M" for i, j in cells) and not any(in_bounds(grid, i, j) and grid[i][j] == "M" for i, j in halo):
+            for i, j in cells:
+                grid[i][j] = "O"
+            submissions.append(t)
+    return first_paint, submissions
+
+
+def reversed_lines(lines: list[list[str]]) -> list[list[str]]:
+    return [[REVERSE[x] for x in line] for line in reversed(lines)]
+
+
+def assemble(r: int, cells: set, halo: set, k: int, single_pass: list[list[str]]) -> list[list[str]] | None:
+    """Expand one pass into a K-pass program (alternating forwards / backwards replay of the part
+    after the first painted cell), cut after the K-th submission."""
+    first, subs = simulate(r, cells, halo, single_pass)
+    if not subs:
+        return None
+    single_pass = single_pass[: subs[0] + 1]
+    core = single_pass[first + 1 :]
+    program = list(single_pass)
+    boundaries = []
+    for p in range(1, k):
+        boundaries.append(len(program))
+        program.append(IDLE)
+        program.extend(core if p % 2 == 0 else reversed_lines(core))
+    _, subs = simulate(r, cells, halo, program)
+    if len(subs) < k:
+        return None
+    program = program[: subs[k - 1] + 1]
+    # drop idle ticks that turn out to be unnecessary
+    for b in reversed(boundaries):
+        if b < len(program):
+            trial = program[:b] + program[b + 1 :]
+            _, subs = simulate(r, cells, halo, trial)
+            if len(subs) >= k:
+                program = trial[: subs[k - 1] + 1]
+    return program
+
+
+# ---------------------------------------------------------------------------------------------
+# strategies
+# ---------------------------------------------------------------------------------------------
+def single_cursor_pass(r, cells, halo, k, p, q, starts):
+    planner = Planner(Cursor(r, p, q), sorted(cells), halo, k)
+    return planner.program(planner.best_path(starts))
+
+
+def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0):
+    painter = Painter(r, cells, halo, emitters)
+    lines, missing = painter.run(max_stuck=2 * r + 2, heuristic=heuristic, seed=seed, lookahead=lookahead)
+    if missing:
+        a, b = painter.cursors[0]
+        off_line = ["-"] * 6
+        for e in painter.E:
+            if e != a and painter.on[e]:
+                off_line[e - 1] = "T"
+                painter.on[e] = False
+        if "T" in off_line:
+            lines.append(off_line)
+        planner = Planner(Cursor(r, a, b), sorted(missing), halo, 1,
+                          start_cfg=(painter.offset(a), painter.offset(b)), on=(painter.on[a], False))
+        lines += planner.program(planner.best_path(starts))
+    return lines
+
+
+def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER_SETS, starts: int = 8,
+                report: dict | None = None, seeds: int = 1, lookahead_top: int = 0) -> list[list[str]]:
+    """Try every strategy variant and keep the shortest verified program.
+
+    seeds: number of random tie-break seeds per painter variant.
+    lookahead_top: re-run this many of the best painter variants with a one-tick lookahead."""
+    cells_list = [(i, j) for i, j, _ in find_all(pattern, "M")]
+    cells, halo = pattern_sets(r, cells_list)
+
+    candidates = {}
     for p, q in pairs:
-        planner = Planner(Cursor(r, p, q), cells, halo, k)
-        path = planner.best_path(starts)
-        program = planner.program(path)
-        if best is None or len(program) < len(best):
-            best = program
+        prog = assemble(r, cells, halo, k, single_cursor_pass(r, cells, halo, k, p, q, starts))
+        if prog is not None:
+            candidates[f"cursor{p}{q}"] = prog
+    variants = []
+    for emitters in emitter_sets:
+        for heuristic in ("cursor", "emitter"):
+            for seed in range(seeds):
+                prog = assemble(r, cells, halo, k, painter_pass(r, cells, halo, emitters, starts, heuristic, seed))
+                if prog is not None:
+                    name = f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}"
+                    candidates[name] = prog
+                    variants.append((len(prog), emitters, heuristic, seed))
+    variants.sort()
+    for _length, emitters, heuristic, seed in variants[:lookahead_top]:
+        prog = assemble(r, cells, halo, k, painter_pass(r, cells, halo, emitters, starts, heuristic, seed, lookahead=1))
+        if prog is not None:
+            candidates[f"painter{''.join(map(str, emitters))}-{heuristic[0]}{seed}L"] = prog
 
+    name, best = min(candidates.items(), key=lambda item: len(item[1]))
+    if report is not None:
+        report.update({n: len(prog) for n, prog in candidates.items()})
+        report["best"] = name
     submitted = count_submissions(r, pattern, best)
     assert submitted == k, f"generated program submits {submitted} patterns instead of {k}"
     return best
@@ -290,10 +415,13 @@ def solve(text: str) -> str:
         m = sum(row.count("M") for row in pattern)
         pairs = PAIRS if m <= 60 else PAIRS[:4] if m <= 150 else PAIRS[:2]
         starts = 12 if m <= 60 else 6 if m <= 150 else 3
-        program = solve_board(r, pattern, k, pairs, starts)
+        report: dict = {}
+        seeds = 4 if m <= 60 else 3 if m <= 150 else 2
+        program = solve_board(r, pattern, k, pairs, EMITTER_SETS, starts, report, seeds=seeds, lookahead_top=2)
         total += len(program)
         out.append("\n".join(" ".join(line) for line in program) + "\n\n")
-        print(f"  board {b + 1}/{n}: r={r} cells={m} K={k} -> {len(program)} lines   (total {total}, {time.time() - t0:.0f}s)", file=sys.stderr)
+        print(f"  board {b + 1}/{n}: r={r} cells={m} K={k} -> {len(program)} lines by {report['best']}"
+              f"   (total {total}, {time.time() - t0:.0f}s)", file=sys.stderr)
     print(f"  score (total lines): {total}", file=sys.stderr)
     return "".join(out)
 
