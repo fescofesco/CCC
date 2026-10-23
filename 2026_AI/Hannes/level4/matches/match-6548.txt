@@ -1,0 +1,42 @@
+# CYAN vs MAGENTA
+# SCENE bbb07676-7676-7676-7670-767600076bbb
+  1. CYAN     TR  A3 -> B3  MOVE
+  2. CYAN     EX  D2 -> F3  MOVE
+  3. MAGENTA  PI  G5 -> G6  MOVE
+  4. MAGENTA  EX  E7 -> C6  MOVE
+  5. CYAN     PI  B4 -> B5  MOVE
+  6. CYAN     PI  B5 -> C6  MOVE   xEX
+  7. MAGENTA  DE  F8 -> F5  MOVE
+  8. MAGENTA  DE  F5 -> F3  MOVE   xEX
+  9. CYAN     DE  C1 -> C3  MOVE
+ 10. CYAN     DE  C3 -> F3  MOVE   xDE
+ 11. MAGENTA  PI  G6 -> G4  MOVE
+ 12. MAGENTA  PI  G4 -> F3  MOVE   xDE
+ 13. CYAN     PI  C6 -> C4  MOVE
+ 14. CYAN     PI  C4 -> C5  MOVE
+ 15. MAGENTA  IC  G7 -> E5  MOVE
+ 16. MAGENTA  IC  E5 -> C5  MOVE   xPI
+ 17. CYAN     IC  B2 -> D4  MOVE
+ 18. CYAN     IC  D4 -> C5  MOVE   xIC
+ 19. MAGENTA  PI  F3 -> E3  MOVE
+ 20. MAGENTA  PI  E3 -> C5  MOVE   xIC
+ 21. CYAN     TR  B3 -> A3  MOVE
+ 22. CYAN     TR  A3 -> C5  SHOOT  xPI
+ 23. MAGENTA  KE  H8 -> G7  MOVE
+ 24. MAGENTA  TR  H6 -> G6  MOVE
+ 25. CYAN     TR  A3 -> B3  MOVE
+ 26. CYAN     KE  A1 -> B2  MOVE
+ 27. MAGENTA  KE  G7 -> F6  MOVE
+ 28. MAGENTA  KE  F6 -> F5  MOVE
+ 29. CYAN     KE  B2 -> C3  MOVE
+ 30. CYAN     KE  C3 -> B4  MOVE
+ 31. MAGENTA  TR  G6 -> G5  MOVE
+ 32. MAGENTA  KE  F5 -> E4  MOVE
+---- *** FIREWALL ROUND 8: [] ***
+ 33. CYAN     TR  B3 -> C3  MOVE
+ 34. CYAN     TR  C3 -> C2  MOVE
+ 35. MAGENTA  KE  E4 -> D5  MOVE
+ 36. MAGENTA  KE  D5 -> E5  MOVE
+ 37. CYAN     TR  C2 -> C3  MOVE
+ 38. CYAN     TR  C3 -> E5  SHOOT  xKE
+---- *** CYAN WINS ***
