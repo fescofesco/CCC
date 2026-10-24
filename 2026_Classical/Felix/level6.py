@@ -35,7 +35,7 @@ from hexboard import CORNER_INDEX, DIRECTIONS, Grid, border_ring, find_all, in_b
 from level5 import count_submissions
 from painter import EMITTER_SETS, Painter, third_family
 from shorten import ALL_EMITTERS, shorten
-from sweep import SWEEP_CONFIGS, Beams, sweep_pass
+from sweep import SWEEP_CONFIGS, Beams, apply_line, sweep_pass
 
 INF = 10**9
 PAIRS = [(p, q) for p in (1, 4) for q in (2, 3, 5, 6)] + [(p, q) for p in (2, 5) for q in (3, 6)]
@@ -339,6 +339,46 @@ def assemble(r: int, cells: set, halo: set, k: int, single_pass: list[list[str]]
     return program
 
 
+def end_state(r: int, lines: list[list[str]], beams: Beams | None = None):
+    """Emitter positions and on-flags after replaying `lines` from the initial state."""
+    beams = beams or Beams(r, ALL_EMITTERS)
+    pos = {k: CORNER_INDEX[k] * r for k in beams.E}
+    on = {k: False for k in beams.E}
+    for line in lines:
+        pos, on = apply_line(beams, pos, on, line)
+    return pos, on
+
+
+def assemble_two(r: int, cells: set, halo: set, k: int, pass1: list[list[str]], pass2: list[list[str]]):
+    """K-pass program from a first pass and a second pass that starts where the first one ended;
+    later passes replay the second pass backwards and forwards."""
+    _first, subs = simulate(r, cells, halo, pass1)
+    if not subs:
+        return None
+    pass1 = pass1[: subs[0] + 1]
+    _first, subs = simulate(r, cells, halo, pass1 + pass2)
+    if len(subs) < 2:
+        return None
+    pass2 = (pass1 + pass2)[subs[0] + 1 : subs[1] + 1]
+    program = pass1 + pass2
+    boundaries = []
+    for p in range(2, k):
+        boundaries.append(len(program))
+        program.append(IDLE)
+        program.extend(reversed_lines(pass2) if p % 2 == 0 else pass2)
+    _first, subs = simulate(r, cells, halo, program)
+    if len(subs) < k:
+        return None
+    program = program[: subs[k - 1] + 1]
+    for b in reversed(boundaries):
+        if b < len(program):
+            trial = program[:b] + program[b + 1 :]
+            _first, subs = simulate(r, cells, halo, trial)
+            if len(subs) >= k:
+                program = trial[: subs[k - 1] + 1]
+    return program
+
+
 # ---------------------------------------------------------------------------------------------
 # strategies
 # ---------------------------------------------------------------------------------------------
@@ -348,17 +388,19 @@ def single_cursor_pass(r, cells, halo, k, p, q, starts):
 
 
 def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, lookahead=0,
-                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1, joint=False):
+                 prefix=None, pos=None, on=None, missing=None, extra=(), width=1, joint=False, tail_width=0,
+                 lookahead_factor=0):
     """One pass by the painter (greedy, or beam search when width > 1), optionally continuing a
     prefix program from a given emitter state with only `missing` cells left; whatever the painter
     cannot reach is done by one cursor."""
     painter = Painter(r, cells, halo, emitters, extra, joint)
     lines = list(prefix) if prefix else []
     if pos is not None:
-        painter.pos.update({k: pos[k] for k in emitters if k in pos})
-        painter.on.update({k: on[k] for k in emitters if k in on})
+        painter.pos.update({k: pos[k] for k in painter.E if k in pos})
+        painter.on.update({k: on[k] for k in painter.E if k in on})
     if width > 1:
-        more, missing = painter.beam(width, max_ticks=3 * len(cells) + 6 * r, heuristic=heuristic, seed=seed, missing=missing)
+        more, missing = painter.beam(width, max_ticks=3 * len(cells) + 6 * r, heuristic=heuristic, seed=seed,
+                                     missing=missing, tail_width=tail_width, lookahead_factor=lookahead_factor)
         lines += more
     if width <= 1 or missing:
         more, missing = painter.run(max_stuck=2 * r + 2, heuristic=heuristic, seed=seed, lookahead=lookahead, missing=missing)
@@ -381,7 +423,9 @@ def painter_pass(r, cells, halo, emitters, starts, heuristic="cursor", seed=0, l
 def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER_SETS, starts: int = 8,
                 report: dict | None = None, seeds: int = 1, lookahead_top: int = 0, sweeps: bool = False,
                 shorten_top: int = 0, shorten_budget: float = 2.0, extra_seeds: int = 0,
-                beam_width: int = 0, beam_extra: bool = False, joint_width: int = 0, joint_seeds: int = 1) -> list[list[str]]:
+                beam_width: int = 0, beam_extra: bool = False, joint_width: int = 0, joint_seeds: int = 1,
+                joint_lookahead: int = 0, joint_heuristics=("cursor", "emitter"), second_pass_top: int = 0,
+                sweep_seed: bool = False) -> list[list[str]]:
     """Try every strategy variant and keep the shortest verified program.
 
     seeds: number of random tie-break seeds per painter variant.
@@ -432,11 +476,11 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
                                           extra=third_family(emitters)))
     if joint_width > 0:  # all six emitters searched jointly (beam search, or greedy for width 1)
         for emitters in emitter_sets:
-            for heuristic in ("cursor", "emitter"):
+            for heuristic in joint_heuristics:
                 for seed in range(joint_seeds):
-                    consider(f"painter{''.join(map(str, emitters))}-{heuristic[0]}j{joint_width}s{seed}",
+                    consider(f"painter{''.join(map(str, emitters))}-{heuristic[:2]}j{joint_width}s{seed}L{joint_lookahead}",
                              painter_pass(r, cells, halo, emitters, starts, heuristic, seed, width=joint_width,
-                                          extra=third_family(emitters), joint=True))
+                                          extra=third_family(emitters), joint=True, lookahead_factor=joint_lookahead))
     if sweeps:
         for fill, cutters in SWEEP_CONFIGS:
             for direction in (1, -1):
@@ -457,6 +501,41 @@ def solve_board(r: int, pattern: Grid, k: int, pairs=PAIRS, emitter_sets=EMITTER
                     consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, 0,
                                                 prefix=prefix, pos=pos, on=on, missing=leftover))
 
+    if joint_width > 0 and sweep_seed:  # joint beam that starts from the sweep's first line fill
+        for fill, cutters in SWEEP_CONFIGS:
+            if len(cutters) != 2:
+                continue
+            for direction in (1, -1):
+                result = sweep_pass(r, cells, halo, fill, cutters, direction, max_lines=1)
+                if result is None:
+                    continue
+                prefix, pos, on, leftover = result
+                emitters = fill + cutters
+                for heuristic in joint_heuristics:
+                    name = f"seed{''.join(map(str, fill))}c{''.join(map(str, cutters))}{'+' if direction > 0 else '-'}{heuristic[:2]}j{joint_width}"
+                    consider(name, painter_pass(r, cells, halo, emitters, starts, heuristic, 0, width=joint_width,
+                                                extra=third_family(emitters), joint=True, prefix=prefix, pos=pos, on=on,
+                                                missing=leftover))
+    # fresh second pass from the end state of the best passes (K >= 2): the first pass is tuned
+    # for painting early from the corners, a pass that starts positioned and switched on can be shorter
+    if k >= 2 and second_pass_top and joint_width > 0:
+        beams = Beams(r, ALL_EMITTERS)
+        ranked = sorted(candidates, key=lambda n: len(candidates[n]))[:second_pass_top]
+        for name in ranked:
+            pass1 = passes[name]
+            _first, subs = simulate(r, cells, halo, pass1)
+            pass1 = pass1[: subs[0] + 1]
+            pos, on = end_state(r, pass1, beams)
+            for emitters in emitter_sets:
+                for heuristic in joint_heuristics:
+                    for seed in range(joint_seeds):
+                        pass2 = painter_pass(r, cells, halo, emitters, starts, heuristic, seed, width=joint_width,
+                                             extra=third_family(emitters), joint=True, lookahead_factor=joint_lookahead,
+                                             pos=pos, on=on)
+                        prog = assemble_two(r, cells, halo, k, pass1, pass2)
+                        if prog is not None:
+                            candidates[f"{name}+{''.join(map(str, emitters))}{heuristic[:2]}{seed}"] = prog
+                            passes[f"{name}+{''.join(map(str, emitters))}{heuristic[:2]}{seed}"] = pass1
     # local search on the best few passes: delete / merge / shift lines while the pass stays valid
     if shorten_top:
         ranked = sorted(candidates, key=lambda n: len(candidates[n]))[:shorten_top]

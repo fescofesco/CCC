@@ -272,6 +272,18 @@ class Painter:
     def make_h(self, pos: dict, missing: set, heuristic: str):
         """Distance heuristic for the moves out of `pos` (lower is better)."""
         n = self.n
+        if heuristic == "cover":
+            # primary: how many missing cells lie on an active beam (one more crossing paints them);
+            # secondary: the cursor distance heuristic
+            inner = self.make_h(pos, missing, "cursor")
+
+            def h_of(actions, newpos, newon, painted):
+                covered = set()
+                for k in self.E:
+                    if newon[k]:
+                        covered |= self.rays[k][newpos[k]] & missing
+                return (-len(covered), inner(actions, newpos, newon, painted))
+            return h_of
         if heuristic == "cursor":
             near = []
             for a, b in self.cursors:
@@ -309,17 +321,22 @@ class Painter:
                 return h + self.extra_penalty(newpos, newon, painted)
         return h_of
 
-    def beam(self, width: int, max_ticks: int, heuristic: str = "cursor", seed: int = 0, missing: set | None = None):
+    def beam(self, width: int, max_ticks: int, heuristic: str = "cursor", seed: int = 0, missing: set | None = None,
+             tail_width: int = 0, tail_gain: int = 3, lookahead_factor: int = 0):
         """Beam search over ticks: keep the `width` best states (fewest missing cells, then the
-        distance heuristic). Returns (instruction lines, cells still missing); the search fails
-        (missing non-empty) when no state finishes within max_ticks."""
+        distance heuristic). When tail_width is set, the beam widens to tail_width in ticks that
+        follow a tick whose best state painted fewer than tail_gain new cells (the slow tail).
+        Returns (instruction lines, cells still missing); the search fails (missing non-empty)
+        when no state finishes within max_ticks."""
         rng = random.Random(seed)
         missing0 = frozenset(self.P if missing is None else missing)
         states = [(dict(self.pos), dict(self.on), missing0, [])]
         best_partial = states[0]
+        current_width = width
         for _tick in range(max_ticks):
             expanded = []
             seen = set()
+            before = len(states[0][2])
             for pos, on, miss, lines in states:
                 h_of = self.make_h(pos, miss, heuristic)
                 for actions, newpos, newon, painted, _gain, toggles in self.candidates(pos, on, miss):
@@ -336,11 +353,22 @@ class Painter:
             if not expanded:
                 break
             expanded.sort(key=lambda e: e[0])
-            states = [(p, o, m, l) for _k, p, o, m, l in expanded[:width]]
+            if lookahead_factor:
+                # re-rank the best few states by the cells their best next move could paint
+                top = expanded[: current_width * lookahead_factor]
+                reranked = []
+                for key, p, o, m, l in top:
+                    nxt = max((g for *_, g, _t in self.candidates(p, o, m)), default=0) if m else 0
+                    reranked.append(((len(m) - nxt, len(m)) + key[1:], p, o, m, l))
+                reranked.sort(key=lambda e: e[0])
+                expanded = reranked + expanded[current_width * lookahead_factor :]
+            states = [(p, o, m, l) for _k, p, o, m, l in expanded[:current_width]]
             for pos, on, miss, lines in states:
                 if not miss:
                     self.pos, self.on = pos, on
                     return lines, set()
+            if tail_width:
+                current_width = tail_width if before - len(states[0][2]) < tail_gain else width
             if len(states[0][2]) < len(best_partial[2]):
                 best_partial = states[0]
         pos, on, miss, lines = best_partial
